@@ -2,6 +2,59 @@ export type StartupField = 'software' | 'deeptech' | 'biotech' | 'fintech' | 'ec
 
 export type StartupRegion = 'US' | 'Europe';
 
+export interface CustomParameterSet {
+  id: string;
+  name: string;
+  description?: string;
+  color: string; // Hex color for badge
+  icon: string; // Lucide icon name
+  createdAt: string;
+  
+  // Parameter values
+  stageProgression: {
+    toSeed?: number;
+    toSeriesA?: number;
+    toSeriesB?: number;
+    toSeriesC?: number;
+    toIPO?: number;
+  };
+  
+  dilutionRates: {
+    seed?: number;
+    seriesA?: number;
+    seriesB?: number;
+    seriesC?: number;
+    ipo?: number;
+  };
+  
+  lossProb: {
+    preSeed: number;
+    seed: number;
+    seriesA: number;
+    seriesB: number;
+    seriesC: number;
+    ipo: number;
+  };
+  
+  // Exit valuations by stage [min, max] in $MM
+  exitValuations: {
+    preSeed: [number, number];
+    seed: [number, number];
+    seriesA: [number, number];
+    seriesB: [number, number];
+    seriesC: [number, number];
+    ipo: [number, number];
+  };
+  
+  yearsToNext: {
+    toSeed?: [number, number];
+    toSeriesA?: [number, number];
+    toSeriesB?: [number, number];
+    toSeriesC?: [number, number];
+    toIPO?: [number, number];
+  };
+}
+
 export interface PortfolioInvestment {
   id: string;
   companyName: string;
@@ -12,6 +65,10 @@ export interface PortfolioInvestment {
   checkSize: number; // in $MM
   entryDate: string;
   currentStage: string;
+  
+  // Parameter configuration
+  usePresets: boolean;
+  customParameterSetId?: string; // Reference to custom parameter set
   
   // Stage progression probabilities (%)
   stageProgression: {
@@ -31,7 +88,7 @@ export interface PortfolioInvestment {
     ipo?: number;
   };
   
-  // Exit valuations by stage (min, max in $MM)
+  // Exit valuations by stage [min, max] in $MM
   exitValuations: {
     preSeed: [number, number];
     seed: [number, number];
@@ -41,7 +98,7 @@ export interface PortfolioInvestment {
     ipo: [number, number];
   };
   
-  // Probability of total loss by stage (%)
+  // Loss probabilities by stage (%)
   lossProb: {
     preSeed: number;
     seed: number;
@@ -51,7 +108,7 @@ export interface PortfolioInvestment {
     ipo: number;
   };
   
-  // Years to next stage (min, max)
+  // Years to next stage [min, max]
   yearsToNext: {
     toSeed?: [number, number];
     toSeriesA?: [number, number];
@@ -59,9 +116,6 @@ export interface PortfolioInvestment {
     toSeriesC?: [number, number];
     toIPO?: [number, number];
   };
-
-  // Track if using presets or custom values
-  usePresets: boolean;
 }
 
 export interface PortfolioSimulationParams {

@@ -7,21 +7,47 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Info, ExternalLink, AlertCircle, X } from 'lucide-react';
+import { Play, Info, ExternalLink, AlertCircle, X, Share2 } from 'lucide-react';
 import PortfolioManager from '@/components/PortfolioManager';
 import PortfolioResults from '@/components/PortfolioResults';
+import { DebugPanel } from '@/components/DebugPanel';
+import { AuthModal } from '@/components/AuthModal';
+import { UserProfileButton } from '@/components/UserProfileButton';
+import { ShareSimulationDialog } from '@/components/ShareSimulationDialog';
+import { SharedSimulationsDialog } from '@/components/SharedSimulationsDialog';
+import { useAuth } from '@/contexts/AuthContext';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
+import { usePortfolioData } from '@/hooks/usePortfolioData';
 import { runPortfolioSimulation } from '@/utils/portfolioSimulation';
-import { getSharedSimulationFromUrl, isValidSharedSimulation, getSimulationSummary } from '@/utils/shareSimulation';
-import type { PortfolioInvestment, PortfolioSimulationParams } from '@/types/portfolio';
+import { getSharedSimulationFromUrl, isValidSharedSimulation } from '@/utils/shareSimulation';
+import { useNotifications } from '@/components/NotificationSystem';
+import type { PortfolioInvestment, PortfolioSimulationParams, CustomParameterSet } from '@/types/portfolio';
+import type { SharedSimulation } from '@/services/sharedSimulationService';
 
 const Index = () => {
+  // Auth state
+  const { user, loading } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const { showSuccess, showError } = useNotifications();
+  const { unreadCount, refreshUnreadCount } = useUnreadCount();
+
+  // Portfolio data hook
+  const { 
+    investments: portfolioInvestments, 
+    customParameterSets, 
+    importInvestments 
+  } = usePortfolioData();
+
   // Shared simulation state
   const [sharedSimulationLoaded, setSharedSimulationLoaded] = useState(false);
   const [sharedSimulationInfo, setSharedSimulationInfo] = useState<string | null>(null);
   const [showSharedNotice, setShowSharedNotice] = useState(false);
+  
+  // Share simulation dialog state
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [showSharedSimulationsDialog, setShowSharedSimulationsDialog] = useState(false);
 
   // Portfolio mode state
-  const [portfolioInvestments, setPortfolioInvestments] = useState<PortfolioInvestment[]>([]);
   const [portfolioParams, setPortfolioParams] = useState<PortfolioSimulationParams>({
     numSimulations: 100,
     setupFees: 2,
@@ -41,29 +67,37 @@ const Index = () => {
 
   // Load shared simulation on component mount
   useEffect(() => {
-    const sharedData = getSharedSimulationFromUrl();
-    if (sharedData && isValidSharedSimulation(sharedData)) {
-      try {
-        // Load the shared simulation data
-        setPortfolioInvestments(sharedData.investments);
-        setPortfolioParams(sharedData.params);
-        
-        if (sharedData.results) {
-          setPortfolioResults(sharedData.results);
+    const loadSharedSimulation = async () => {
+      const sharedData = getSharedSimulationFromUrl();
+      if (sharedData && isValidSharedSimulation(sharedData)) {
+        try {
+          // Load the shared simulation data
+          await importInvestments(sharedData.investments);
+          setPortfolioParams(sharedData.params);
+          
+          if (sharedData.results) {
+            setPortfolioResults(sharedData.results);
+          }
+          
+          // Create summary info for display  
+          const companies = sharedData.investments.length
+          const totalInvestment = sharedData.investments.reduce((sum, inv) => sum + inv.checkSize, 0)
+          const summary = `${companies} companies, $${totalInvestment.toFixed(1)}MM total`
+          
+          setSharedSimulationInfo(`Loaded shared simulation: ${summary}`);
+          setSharedSimulationLoaded(true);
+          setShowSharedNotice(true);
+          
+          // Clean the URL without refreshing the page
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (error) {
+          console.error('Error loading shared simulation:', error);
         }
-        
-        const summary = getSimulationSummary(sharedData);
-        setSharedSimulationInfo(summary);
-        setSharedSimulationLoaded(true);
-        setShowSharedNotice(true);
-        
-        // Clean the URL without refreshing the page
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } catch (error) {
-        console.error('Error loading shared simulation:', error);
       }
-    }
-  }, []);
+    };
+
+    loadSharedSimulation();
+  }, [importInvestments]);
 
 
 
@@ -78,6 +112,32 @@ const Index = () => {
       setIsRunningPortfolioSim(false);
     }
   };
+
+  const handleLoadSharedSimulation = async (simulation: SharedSimulation) => {
+    try {
+      // Load the simulation data using the hook's import function
+      await importInvestments(simulation.portfolioData)
+      
+      setPortfolioParams(simulation.simulationParams)
+      
+      // Create summary info for display
+      const companies = simulation.portfolioData.length
+      const totalInvestment = simulation.portfolioData.reduce((sum, inv) => sum + inv.checkSize, 0)
+      const summary = `${companies} companies, $${totalInvestment.toFixed(1)}MM total`
+      
+      setSharedSimulationInfo(`Loaded simulation from ${simulation.senderName}: ${summary}`)
+      setSharedSimulationLoaded(true)
+      setShowSharedNotice(true)
+      
+      // Refresh unread count
+      refreshUnreadCount()
+      
+      showSuccess('Simulation Loaded', 'Successfully loaded shared simulation')
+    } catch (error) {
+      console.error('Error loading shared simulation:', error)
+      showError('Load Failed', 'Failed to load simulation')
+    }
+  }
 
   // Portfolio simulation results
   // const portfolioResults = useMemo(() => {
@@ -102,6 +162,23 @@ const Index = () => {
                 Model venture capital fund performance with Monte Carlo simulation
               </p>
             </div>
+            
+            {/* Authentication Section */}
+            <div className="flex items-center gap-3">
+              {loading ? (
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              ) : user ? (
+                <UserProfileButton />
+              ) : (
+                <Button 
+                  onClick={() => setShowAuthModal(true)}
+                  variant="outline"
+                  className="bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700"
+                >
+                  Sign In / Sign Up
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -118,7 +195,7 @@ const Index = () => {
                     <h3 className="font-medium text-blue-900">Shared Simulation Loaded</h3>
                     <p className="text-sm text-blue-800 mt-1">{sharedSimulationInfo}</p>
                     <p className="text-xs text-blue-700 mt-2">
-                      You can now view and modify this simulation. Click "Share Simulation" to create your own share link.
+                      You can now view and modify this simulation.
                     </p>
                   </div>
                 </div>
@@ -146,13 +223,21 @@ const Index = () => {
               {/* Portfolio Management */}
               <div className="lg:col-span-2">
                 <PortfolioManager
-                  investments={portfolioInvestments}
-                  onInvestmentsChange={setPortfolioInvestments}
+                  portfolioData={portfolioInvestments}
+                  simulationParams={portfolioParams}
+                  customSets={customParameterSets}
+                  onShareClick={() => setShowShareDialog(true)}
+                  onViewSharedClick={() => setShowSharedSimulationsDialog(true)}
+                  unreadCount={unreadCount}
+                  onImportInvestments={importInvestments}
                 />
               </div>
 
               {/* Portfolio Simulation Parameters */}
               <div className="space-y-4">
+                {/* Debug Panel */}
+                <DebugPanel />
+                
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -330,14 +415,16 @@ const Index = () => {
                       </div>
                     </div>
 
-                    <Button 
-                      onClick={runPortfolioSim}
-                      disabled={portfolioInvestments.length === 0 || isRunningPortfolioSim}
-                      className="w-full"
-                    >
-                      <Play className="w-4 h-4 mr-2" />
-                      {isRunningPortfolioSim ? 'Running...' : 'Run Portfolio Simulation'}
-                    </Button>
+                    <div className="space-y-2">
+                      <Button 
+                        onClick={runPortfolioSim}
+                        disabled={portfolioInvestments.length === 0 || isRunningPortfolioSim}
+                        className="w-full"
+                      >
+                        <Play className="w-4 h-4 mr-2" />
+                        {isRunningPortfolioSim ? 'Running...' : 'Run Portfolio Simulation'}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -366,7 +453,27 @@ const Index = () => {
         </Tabs>
       </div>
 
-
+      {/* Auth Modal */}
+      <AuthModal 
+        open={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+      />
+      
+      {/* Share Simulation Dialog */}
+      <ShareSimulationDialog
+        open={showShareDialog}
+        onOpenChange={setShowShareDialog}
+        portfolioData={portfolioInvestments}
+        simulationParams={portfolioParams}
+        customSets={customParameterSets}
+      />
+      
+      {/* Shared Simulations Dialog */}
+      <SharedSimulationsDialog
+        open={showSharedSimulationsDialog}
+        onOpenChange={setShowSharedSimulationsDialog}
+        onLoadSharedSimulation={handleLoadSharedSimulation}
+      />
     </div>
   );
 };

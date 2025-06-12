@@ -538,7 +538,7 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
       <div className="flex justify-end">
         <Button 
           onClick={exportToExcel}
-          className="bg-green-600 hover:bg-green-700 text-white gap-2"
+          className="bg-black hover:bg-gray-800 text-white gap-2"
         >
           <FileSpreadsheet className="w-4 h-4" />
           Export to Excel

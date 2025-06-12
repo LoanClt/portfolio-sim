@@ -35,9 +35,9 @@ export const getRegionIcon = (region: StartupRegion) => {
 
 export const getRegionLabel = (region: StartupRegion): string => {
   switch (region) {
-    case 'US': return 'United States';
-    case 'Europe': return 'Europe';
-    default: return 'United States';
+    case 'US': return 'US';
+    case 'Europe': return 'EU';
+    default: return 'US';
   }
 };
 
