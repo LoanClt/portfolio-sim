@@ -6,6 +6,10 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { ChevronLeft, ChevronRight, Rocket, TrendingUp, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import type { PortfolioResults, PortfolioInvestment, PortfolioSimulationParams } from '@/types/portfolio';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 interface PortfolioResultsProps {
   results: PortfolioResults;
@@ -15,18 +19,36 @@ interface PortfolioResultsProps {
 
 const PortfolioResults = ({ results, investments, params }: PortfolioResultsProps) => {
   const [currentSimulation, setCurrentSimulation] = useState(0);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [fileName, setFileName] = useState('simulation_results.xlsx');
+  const [selectedSheets, setSelectedSheets] = useState<{[key:string]:boolean}>({
+    summary: true,
+    fundInputs: true,
+    assumptions: true,
+    allOutcomes: true,
+    avgOutcomes: true,
+    statistics: true
+  });
+
+  const toggleSheet = (key: string) => setSelectedSheets(prev => ({...prev, [key]: !prev[key]}));
 
   const exportToExcel = () => {
     const workbook = XLSX.utils.book_new();
 
-    // Helper function to get performance color
+    // Calculate totalFollowOnInvested first to avoid reference errors
+    const totalFollowOnInvested = investments.reduce((sum, inv) => {
+      if (!results.simulations?.length) return sum;
+      return sum + (results.simulations[0].find(r => r.investmentId === inv.id)?.followOnInvestments?.reduce((s, fo) => s + fo.amount, 0) || 0);
+    }, 0);
+
+    // Helper function to get professional, non-flashy performance colors
     const getPerformanceColor = (moic: number) => {
-      if (moic >= 5) return "006400"; // Dark Green - Exceptional
-      if (moic >= 3) return "228B22"; // Green - Great
-      if (moic >= 2) return "90EE90"; // Light Green - Good
-      if (moic >= 1) return "FFFF99"; // Light Yellow - Break-even
-      if (moic >= 0.5) return "FFA500"; // Orange - Poor
-      return "FF4500"; // Red Orange - Very Poor
+      if (moic >= 5) return "2E7D32"; // Professional Dark Green - Exceptional
+      if (moic >= 3) return "388E3C"; // Professional Green - Great  
+      if (moic >= 2) return "66BB6A"; // Soft Green - Good
+      if (moic >= 1) return "FFF9C4"; // Soft Light Yellow - Break-even
+      if (moic >= 0.5) return "FFB74D"; // Soft Orange - Poor
+      return "E57373"; // Soft Red - Very Poor
     };
 
     const getPerformanceText = (moic: number) => {
@@ -38,184 +60,262 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
       return "LOSS";
     };
 
-    // Summary Sheet with enhanced styling
-    const summaryData = [
-      ["VC PORTFOLIO SIMULATION RESULTS", "", "", ""],
-      ["Generated on:", new Date().toLocaleString(), "", ""],
-      ["", "", "", ""],
-      ["FUND PERFORMANCE SUMMARY", "", "", ""],
-      ["Total Fund Size:", `$${results.totalPaidIn.toFixed(1)}MM`, "", ""],
-      ["Average Distributed:", `$${results.avgDistributed.toFixed(1)}MM`, "", ""],
-      ["Average MOIC:", `${results.avgMOIC.toFixed(2)}x`, getPerformanceText(results.avgMOIC), ""],
-      ["Average IRR:", `${results.avgIRR?.toFixed(1) || 'N/A'}%`, "", ""],
-      ["Success Rate:", `${results.successRate.toFixed(1)}%`, results.successRate >= 60 ? "EXCELLENT" : results.successRate >= 40 ? "GOOD" : "NEEDS IMPROVEMENT", ""],
-      ["Number of Simulations:", results.simulations.length.toString(), "", ""],
-      ...(results.avgTotalInvested ? [["Average Total Invested:", `$${results.avgTotalInvested.toFixed(1)}MM`, "", ""]] : []),
-      ...(results.totalRecycledCapital ? [["Average Recycled Capital:", `$${results.totalRecycledCapital.toFixed(1)}MM`, "", ""]] : []),
-    ];
+    // Helper function to get professional sheet colors
+    const getSheetColors = () => ({
+      summary: "E3F2FD", // Light Blue
+      fundInputs: "F3E5F5", // Light Purple  
+      assumptions: "E8F5E8", // Light Green
+      allOutcomes: "FFF3E0", // Light Orange
+      avgOutcomes: "F1F8E9", // Very Light Green
+      statistics: "FCE4EC" // Light Pink
+    });
 
-    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-    
-    // Enhanced styling for summary sheet
-    summarySheet['A1'] = { v: "VC PORTFOLIO SIMULATION RESULTS", t: 's', s: { 
-      font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } }, 
-      fill: { fgColor: { rgb: "1F2937" } },
-      alignment: { horizontal: "center" }
-    }};
-    
-    // Color code MOIC performance
-    if (summarySheet['C7']) {
-      summarySheet['C7'].s = {
-        font: { bold: true, color: { rgb: "000000" } },
-        fill: { fgColor: { rgb: getPerformanceColor(results.avgMOIC) } }
-      };
-    }
-    
-    // Color code success rate
-    if (summarySheet['C9']) {
-      const successColor = results.successRate >= 60 ? "006400" : results.successRate >= 40 ? "228B22" : "FF4500";
-      summarySheet['C9'].s = {
-        font: { bold: true, color: { rgb: "FFFFFF" } },
-        fill: { fgColor: { rgb: successColor } }
-      };
-    }
-    
-    XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+    const sheetColors = getSheetColors();
 
-    // Fund Inputs Sheet
-    const totalInvestments = investments.reduce((sum, inv) => sum + inv.checkSize, 0);
-    const totalFees = params ? params.setupFees + params.managementFees * params.managementFeeYears : 0;
-    const fundInputsData = [
-      ["FUND INPUTS", "", "", ""],
-      ["", "", "", ""],
-      ["Fees", "", "", ""],
-      ...(params ? [
-        ["Setup Fees ($MM):", params.setupFees.toFixed(2), "", ""],
-        ["Management Fees (% per yr):", params.managementFees.toFixed(2), "", ""],
-        ["Management Fee Years:", params.managementFeeYears.toString(), "", ""],
-        ["Total Fees ($MM):", totalFees.toFixed(2), "", ""],
-      ] : []),
-      ["", "", "", ""],
-      ["Portfolio Composition", "", "", ""],
-      ["Number of Investments:", investments.length.toString(), "", ""],
-      ["Total Investment Amount:", `$${totalInvestments.toFixed(1)}MM`, "", ""],
-      ["", "", "", ""],
-      ["Simulation Parameters", "", "", ""],
-      ["Number of Simulations:", results.simulations.length.toString(), "", ""],
-      ["", "", "", ""],
-      ["Portfolio Companies", "", "", ""],
-      ["Company Name", "Field", "Region", "Entry Stage", "Check Size ($MM)", "Entry Valuation ($MM)", "Entry Date"],
-      ...investments.map(inv => [
-        inv.companyName,
-        inv.field,
-        inv.region,
-        inv.entryStage,
-        inv.checkSize.toFixed(2),
-        inv.entryValuation.toFixed(2),
-        inv.entryDate
-      ])
-    ];
+    // Helper to format tables: auto-width, header styling, zebra stripes, borders, freeze panes
+    const applyTableFormatting = (
+      sheet: any,
+      data: any[][],
+      headerRowIdx: number,
+      headerFillColor: string
+    ) => {
+      const border = { style: 'thin', color: { rgb: 'CCCCCC' } };
 
-    const fundInputsSheet = XLSX.utils.aoa_to_sheet(fundInputsData);
-    fundInputsSheet['A1'] = { v: "FUND INPUTS", t: 's', s: { 
-      font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, 
-      fill: { fgColor: { rgb: "3B82F6" } }
-    }};
+      const colCount = data[headerRowIdx]?.length || 0;
+      const cols: { wch: number }[] = Array.from({ length: colCount }, () => ({ wch: 10 }));
 
-    // Style the table headers
-    const headerRow = params ? 15 : 10; // adjust index if fees rows added
-    for (let col = 0; col < 7; col++) {
-      const cellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
-      if (fundInputsSheet[cellRef]) {
-        fundInputsSheet[cellRef].s = {
-          font: { bold: true, color: { rgb: "FFFFFF" } },
-          fill: { fgColor: { rgb: "2563EB" } }
-        };
-      }
-    }
-    
-    (fundInputsSheet as any)["!freeze"] = { xSplit: 0, ySplit: 1 };
-    
-    XLSX.utils.book_append_sheet(workbook, fundInputsSheet, "Fund Inputs");
+      for (let r = headerRowIdx; r < data.length; r++) {
+        for (let c = 0; c < colCount; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r, c });
+          if (!sheet[cellRef]) continue;
 
-    // Investment Assumptions Sheet
-    const assumptionsData = [
-      ["INVESTMENT ASSUMPTIONS", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Company", "Stage Progression (%)", "", "", "", "", "Dilution Rates (%)", ""],
-      ["", "To Seed", "To Series A", "To Series B", "To Series C", "To IPO", "Seed", "Series A", "Series B", "Series C", "IPO"],
-      ...investments.map(inv => [
-        inv.companyName,
-        inv.stageProgression.toSeed || 0,
-        inv.stageProgression.toSeriesA || 0,
-        inv.stageProgression.toSeriesB || 0,
-        inv.stageProgression.toSeriesC || 0,
-        inv.stageProgression.toIPO || 0,
-        inv.dilutionRates.seed || 0,
-        inv.dilutionRates.seriesA || 0,
-        inv.dilutionRates.seriesB || 0,
-        inv.dilutionRates.seriesC || 0,
-        inv.dilutionRates.ipo || 0
-      ]),
-      ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Exit Valuation Ranges ($MM)", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Company", "Pre-Seed Min", "Pre-Seed Max", "Seed Min", "Seed Max", "Series A Min", "Series A Max", "Series B Min", "Series B Max", "Series C Min", "Series C Max", "IPO Min", "IPO Max"],
-      ...investments.map(inv => [
-        inv.companyName,
-        inv.exitValuations.preSeed[0],
-        inv.exitValuations.preSeed[1],
-        inv.exitValuations.seed[0],
-        inv.exitValuations.seed[1],
-        inv.exitValuations.seriesA[0],
-        inv.exitValuations.seriesA[1],
-        inv.exitValuations.seriesB[0],
-        inv.exitValuations.seriesB[1],
-        inv.exitValuations.seriesC[0],
-        inv.exitValuations.seriesC[1],
-        inv.exitValuations.ipo[0],
-        inv.exitValuations.ipo[1]
-      ]),
-      ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Loss Probabilities (%)", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Company", "Pre-Seed", "Seed", "Series A", "Series B", "Series C", "IPO", "", "", "", "", "", "", ""],
-      ...investments.map(inv => [
-        inv.companyName,
-        inv.lossProb.preSeed,
-        inv.lossProb.seed,
-        inv.lossProb.seriesA,
-        inv.lossProb.seriesB,
-        inv.lossProb.seriesC,
-        inv.lossProb.ipo,
-        "", "", "", "", "", "", ""
-      ])
-    ];
+          // Auto width calculation
+          const cellValue = sheet[cellRef].v != null ? String(sheet[cellRef].v) : '';
+          cols[c].wch = Math.min(Math.max(cols[c].wch, cellValue.length + 2), 40);
 
-    const assumptionsSheet = XLSX.utils.aoa_to_sheet(assumptionsData);
-    assumptionsSheet['A1'] = { v: "INVESTMENT ASSUMPTIONS", t: 's', s: { 
-      font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, 
-      fill: { fgColor: { rgb: "059669" } }
-    }};
+          // Apply styles
+          const isHeader = r === headerRowIdx;
+          const fillColor = isHeader
+            ? headerFillColor
+            : r % 2 === 0
+              ? 'FFFFFF' // even rows white
+              : 'F5F5F5'; // odd rows light grey
 
-    // Style table headers for different sections
-    const sectionHeaders = [
-      { row: 2, cols: 11, title: "Stage Progression & Dilution" },
-      { row: investments.length + 5, cols: 13, title: "Exit Valuation Ranges" },
-      { row: investments.length * 2 + 8, cols: 7, title: "Loss Probabilities" }
-    ];
-
-    sectionHeaders.forEach(section => {
-      for (let col = 0; col < section.cols; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r: section.row, c: col });
-        if (assumptionsSheet[cellRef]) {
-          assumptionsSheet[cellRef].s = {
-            font: { bold: true, color: { rgb: "FFFFFF" } },
-            fill: { fgColor: { rgb: "10B981" } }
+          sheet[cellRef].s = {
+            ...sheet[cellRef].s,
+            font: {
+              bold: isHeader,
+              color: { rgb: isHeader ? '000000' : '000000' }
+            },
+            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+            fill: { fgColor: { rgb: fillColor } },
+            border: { top: border, bottom: border, left: border, right: border }
           };
         }
       }
-    });
-    
-    XLSX.utils.book_append_sheet(workbook, assumptionsSheet, "Investment Assumptions");
+
+      (sheet as any)['!cols'] = cols;
+      (sheet as any)['!freeze'] = { xSplit: 0, ySplit: headerRowIdx + 1 };
+    };
+
+    // Add sheets based on selection
+    if(selectedSheets.summary){
+      // Summary Sheet with enhanced styling
+      const summaryData = [
+        ["VC PORTFOLIO SIMULATION RESULTS", "", "", ""],
+        ["Generated on:", new Date().toLocaleString(), "", ""],
+        ["", "", "", ""],
+        ["FUND PERFORMANCE SUMMARY", "", "", ""],
+        ["Total Fund Size:", `$${results.totalPaidIn.toFixed(1)}MM`, "", ""],
+        ["Average Distributed:", `$${results.avgDistributed.toFixed(1)}MM`, "", ""],
+        ["Average MOIC:", `${results.avgMOIC.toFixed(2)}x`, getPerformanceText(results.avgMOIC), ""],
+        ["Average IRR:", `${results.avgIRR?.toFixed(1) || 'N/A'}%`, "", ""],
+        ["Success Rate:", `${results.successRate.toFixed(1)}%`, results.successRate >= 60 ? "EXCELLENT" : results.successRate >= 40 ? "GOOD" : "NEEDS IMPROVEMENT", ""],
+        ["Number of Simulations:", results.simulations.length.toString(), "", ""],
+        ...(results.avgTotalInvested ? [["Average Total Invested:", `$${results.avgTotalInvested.toFixed(1)}MM`, "", ""]] : []),
+        ...(results.totalRecycledCapital ? [["Average Recycled Capital:", `$${results.totalRecycledCapital.toFixed(1)}MM`, "", ""]] : []),
+        ["Capital Invested - Initial Checks:", `$${(results.totalPaidIn - totalFollowOnInvested).toFixed(1)}MM`, "", ""],
+        ["Capital Invested - Follow-ons:", `$${totalFollowOnInvested.toFixed(1)}MM`, "", ""],
+      ];
+
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      
+      // Enhanced styling for summary sheet with professional colors
+      summarySheet['A1'] = { v: "VC PORTFOLIO SIMULATION RESULTS", t: 's', s: { 
+        font: { bold: true, sz: 18, color: { rgb: "000000" } }, 
+        fill: { fgColor: { rgb: sheetColors.summary } },
+        alignment: { horizontal: "center" }
+      }};
+      
+      // merge banner across 4 cols
+      (summarySheet as any)['!merges'] = [{ s: { r:0, c:0 }, e: { r:0, c:3 }}];
+      
+      // Color code MOIC performance
+      if (summarySheet['C7']) {
+        summarySheet['C7'].s = {
+          font: { bold: true, color: { rgb: "000000" } },
+          fill: { fgColor: { rgb: getPerformanceColor(results.avgMOIC) } }
+        };
+      }
+      
+      // Color code success rate with professional colors
+      if (summarySheet['C9']) {
+        const successColor = results.successRate >= 60 ? "2E7D32" : results.successRate >= 40 ? "388E3C" : "E57373";
+        summarySheet['C9'].s = {
+          font: { bold: true, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: successColor } }
+        };
+      }
+      
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+    }
+
+    if(selectedSheets.fundInputs){
+      // Fund Inputs Sheet
+      const totalInvestments = investments.reduce((sum, inv) => sum + inv.checkSize, 0);
+      const totalFees = params ? params.setupFees + params.managementFees * params.managementFeeYears : 0;
+      const fundInputsData = [
+        ["FUND INPUTS", "", "", ""],
+        ["", "", "", ""],
+        ["Fees", "", "", ""],
+        ...(params ? [
+          ["Setup Fees ($MM):", params.setupFees.toFixed(2), "", ""],
+          ["Management Fees (% per yr):", params.managementFees.toFixed(2), "", ""],
+          ["Management Fee Years:", params.managementFeeYears.toString(), "", ""],
+          ["Total Fees ($MM):", totalFees.toFixed(2), "", ""],
+        ] : []),
+        ["", "", "", ""],
+        ["Portfolio Composition", "", "", ""],
+        ["Number of Investments:", investments.length.toString(), "", ""],
+        ["Total Investment Amount:", `$${totalInvestments.toFixed(1)}MM`, "", ""],
+        ["Capital Invested - Initial Checks:", `$${(totalInvestments-totalFollowOnInvested).toFixed(1)}MM`, "", ""],
+        ["Capital Invested - Follow-ons:", `$${totalFollowOnInvested.toFixed(1)}MM`, "", ""],
+        ["", "", "", ""],
+        ["Simulation Parameters", "", "", ""],
+        ["Number of Simulations:", results.simulations.length.toString(), "", ""],
+        ["", "", "", ""],
+        ["Portfolio Companies", "", "", ""],
+        ["Company Name", "Field", "Region", "Entry Stage", "Check Size ($MM)", "Entry Valuation ($MM)", "Entry Date"],
+        ...investments.map(inv => [
+          inv.companyName,
+          inv.field,
+          inv.region,
+          inv.entryStage,
+          inv.checkSize.toFixed(2),
+          inv.entryValuation.toFixed(2),
+          inv.entryDate
+        ])
+      ];
+
+      const fundInputsSheet = XLSX.utils.aoa_to_sheet(fundInputsData);
+      fundInputsSheet['A1'] = { v: "FUND INPUTS", t: 's', s: { 
+        font: { bold: true, sz: 16, color: { rgb: "000000" } }, 
+        fill: { fgColor: { rgb: sheetColors.fundInputs } }
+      }};
+
+      // Style the table headers
+      const headerRow = params ? 15 : 10; // adjust index if fees rows added
+      for (let col = 0; col < 7; col++) {
+        const cellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
+        if (fundInputsSheet[cellRef]) {
+          fundInputsSheet[cellRef].s = {
+            font: { bold: true, color: { rgb: "000000" } },
+            fill: { fgColor: { rgb: sheetColors.fundInputs } }
+          };
+        }
+      }
+      
+      (fundInputsSheet as any)["!freeze"] = { xSplit: 0, ySplit: 1 };
+      
+      // Apply enhanced table formatting
+      applyTableFormatting(fundInputsSheet, fundInputsData, headerRow, sheetColors.fundInputs);
+      
+      XLSX.utils.book_append_sheet(workbook, fundInputsSheet, "Fund Inputs");
+    }
+
+    if(selectedSheets.assumptions){
+      // Investment Assumptions Sheet
+      const assumptionsData = [
+        ["INVESTMENT ASSUMPTIONS", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["Company", "Stage Progression (%)", "", "", "", "", "Dilution Rates (%)", ""],
+        ["", "To Seed", "To Series A", "To Series B", "To Series C", "To IPO", "Seed", "Series A", "Series B", "Series C", "IPO"],
+        ...investments.map(inv => [
+          inv.companyName,
+          inv.stageProgression.toSeed || 0,
+          inv.stageProgression.toSeriesA || 0,
+          inv.stageProgression.toSeriesB || 0,
+          inv.stageProgression.toSeriesC || 0,
+          inv.stageProgression.toIPO || 0,
+          inv.dilutionRates.seed || 0,
+          inv.dilutionRates.seriesA || 0,
+          inv.dilutionRates.seriesB || 0,
+          inv.dilutionRates.seriesC || 0,
+          inv.dilutionRates.ipo || 0
+        ]),
+        ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["Exit Valuation Ranges ($MM)", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["Company", "Pre-Seed Min", "Pre-Seed Max", "Seed Min", "Seed Max", "Series A Min", "Series A Max", "Series B Min", "Series B Max", "Series C Min", "Series C Max", "IPO Min", "IPO Max"],
+        ...investments.map(inv => [
+          inv.companyName,
+          inv.exitValuations.preSeed[0],
+          inv.exitValuations.preSeed[1],
+          inv.exitValuations.seed[0],
+          inv.exitValuations.seed[1],
+          inv.exitValuations.seriesA[0],
+          inv.exitValuations.seriesA[1],
+          inv.exitValuations.seriesB[0],
+          inv.exitValuations.seriesB[1],
+          inv.exitValuations.seriesC[0],
+          inv.exitValuations.seriesC[1],
+          inv.exitValuations.ipo[0],
+          inv.exitValuations.ipo[1]
+        ]),
+        ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["Loss Probabilities (%)", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["Company", "Pre-Seed", "Seed", "Series A", "Series B", "Series C", "IPO", "", "", "", "", "", "", ""],
+        ...investments.map(inv => [
+          inv.companyName,
+          inv.lossProb.preSeed,
+          inv.lossProb.seed,
+          inv.lossProb.seriesA,
+          inv.lossProb.seriesB,
+          inv.lossProb.seriesC,
+          inv.lossProb.ipo,
+          "", "", "", "", "", "", ""
+        ])
+      ];
+
+      const assumptionsSheet = XLSX.utils.aoa_to_sheet(assumptionsData);
+      assumptionsSheet['A1'] = { v: "INVESTMENT ASSUMPTIONS", t: 's', s: { 
+        font: { bold: true, sz: 16, color: { rgb: '000000' } },
+        fill: { fgColor: { rgb: sheetColors.assumptions } }
+      }};
+
+      // Style table headers for different sections
+      const sectionHeaders = [
+        { row: 2, cols: 11, title: "Stage Progression & Dilution" },
+        { row: investments.length + 5, cols: 13, title: "Exit Valuation Ranges" },
+        { row: investments.length * 2 + 8, cols: 7, title: "Loss Probabilities" }
+      ];
+
+      sectionHeaders.forEach(section => {
+        for (let col = 0; col < section.cols; col++) {
+          const cellRef = XLSX.utils.encode_cell({ r: section.row, c: col });
+          if (assumptionsSheet[cellRef]) {
+            assumptionsSheet[cellRef].s = {
+              font: { bold: true, color: { rgb: "000000" } },
+              fill: { fgColor: { rgb: sheetColors.assumptions } }
+            };
+          }
+        }
+      });
+      
+      // Apply enhanced table formatting (header row index 2)
+      applyTableFormatting(assumptionsSheet, assumptionsData, 2, sheetColors.assumptions);
+      
+      XLSX.utils.book_append_sheet(workbook, assumptionsSheet, "Investment Assumptions");
+    }
 
     // All Simulations Results Sheet with enhanced coloring
     const allSimulationsData = [
@@ -246,10 +346,13 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
     });
 
     const outcomesSheet = XLSX.utils.aoa_to_sheet(allSimulationsData);
-    outcomesSheet['A1'] = { v: "ALL SIMULATION OUTCOMES", t: 's', s: { 
-      font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, 
-      fill: { fgColor: { rgb: "DC2626" } }
+    outcomesSheet['A1'] = { v: "ALL SIMULATION OUTCOMES", t: 's', s: {
+      font: { bold: true, sz: 16, color: { rgb: '000000' } },
+      fill: { fgColor: { rgb: sheetColors.allOutcomes } }
     }};
+
+    // Apply table formatting (header row is index 2)
+    applyTableFormatting(outcomesSheet, allSimulationsData, 2, sheetColors.allOutcomes);
 
     // Apply conditional formatting to MOIC column (column G)
     for (let i = 4; i < allSimulationsData.length; i++) {
@@ -266,13 +369,15 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
       
       if (outcomesSheet[perfRef]) {
         outcomesSheet[perfRef].s = {
-          font: { bold: true, color: { rgb: "FFFFFF" } },
+          font: { bold: true, color: { rgb: "000000" } },
           fill: { fgColor: { rgb: getPerformanceColor(moic) } }
         };
       }
     }
     
-    XLSX.utils.book_append_sheet(workbook, outcomesSheet, "All Outcomes");
+    if(selectedSheets.allOutcomes){
+      XLSX.utils.book_append_sheet(workbook, outcomesSheet, "All Outcomes");
+    }
 
     // Average Outcome Sheet
     const companyStats: { [key: string]: { 
@@ -347,10 +452,13 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
     });
 
     const averageOutcomeSheet = XLSX.utils.aoa_to_sheet(averageOutcomeData);
-    averageOutcomeSheet['A1'] = { v: "AVERAGE OUTCOMES BY COMPANY", t: 's', s: { 
-      font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, 
-      fill: { fgColor: { rgb: "7C3AED" } }
+    averageOutcomeSheet['A1'] = { v: "AVERAGE OUTCOMES BY COMPANY", t: 's', s: {
+      font: { bold: true, sz: 16, color: { rgb: '000000' } },
+      fill: { fgColor: { rgb: sheetColors.avgOutcomes } }
     }};
+
+    // Apply table formatting (header row is index 2)
+    applyTableFormatting(averageOutcomeSheet, averageOutcomeData, 2, sheetColors.avgOutcomes);
 
     // Apply conditional formatting to average MOIC column (column E)
     for (let i = 3; i < averageOutcomeData.length; i++) {
@@ -367,13 +475,15 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
       
       if (averageOutcomeSheet[perfRef]) {
         averageOutcomeSheet[perfRef].s = {
-          font: { bold: true, color: { rgb: "FFFFFF" } },
+          font: { bold: true, color: { rgb: "000000" } },
           fill: { fgColor: { rgb: getPerformanceColor(moic) } }
         };
       }
     }
     
-    XLSX.utils.book_append_sheet(workbook, averageOutcomeSheet, "Average Outcomes");
+    if(selectedSheets.avgOutcomes){
+      XLSX.utils.book_append_sheet(workbook, averageOutcomeSheet, "Average Outcomes");
+    }
 
     // Statistics Sheet
     const moicValues = results.simulations.map(sim => 
@@ -406,8 +516,8 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
 
     const statisticsSheet = XLSX.utils.aoa_to_sheet(statisticsData);
     statisticsSheet['A1'] = { v: "DETAILED STATISTICS", t: 's', s: { 
-      font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, 
-      fill: { fgColor: { rgb: "7C3AED" } }
+      font: { bold: true, sz: 16, color: { rgb: '000000' } }, 
+      fill: { fgColor: { rgb: sheetColors.statistics } }
     }};
 
     // Color code the percentile values
@@ -419,14 +529,14 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
         if (moicMatch) {
           const moic = parseFloat(moicMatch[1]);
           statisticsSheet[cellRef].s = {
-            font: { bold: true, color: { rgb: "000000" } },
+            font: { bold: true, color: { rgb: '000000' } },
             fill: { fgColor: { rgb: getPerformanceColor(moic) } }
           };
         }
       }
     });
 
-    // Color code success metrics
+    // Color code success metrics with professional colors
     const successRows = [11, 12, 13, 14]; // Success rate rows
     successRows.forEach(row => {
       const cellRef = XLSX.utils.encode_cell({ r: row, c: 1 });
@@ -434,23 +544,23 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
         const percentMatch = (statisticsSheet[cellRef].v as string).match(/\((\d+\.?\d*)%\)/);
         if (percentMatch) {
           const percent = parseFloat(percentMatch[1]);
-          const color = percent >= 50 ? "006400" : percent >= 30 ? "228B22" : percent >= 15 ? "FFA500" : "FF4500";
+          const color = percent >= 50 ? "2E7D32" : percent >= 30 ? "388E3C" : percent >= 15 ? "FFB74D" : "E57373";
           statisticsSheet[cellRef].s = {
-            font: { bold: true, color: { rgb: "FFFFFF" } },
+            font: { bold: true, color: { rgb: "000000" } },
             fill: { fgColor: { rgb: color } }
           };
         }
       }
     });
     
-    XLSX.utils.book_append_sheet(workbook, statisticsSheet, "Statistics");
+    // Apply enhanced table formatting (header row index 2)
+    applyTableFormatting(statisticsSheet, statisticsData, 2, sheetColors.statistics);
+    
+    if(selectedSheets.statistics){
+      XLSX.utils.book_append_sheet(workbook, statisticsSheet, "Statistics");
+    }
 
-    // Generate filename with timestamp
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-    const filename = `VC_Portfolio_Simulation_${timestamp}.xlsx`;
-
-    // Write file
-    XLSX.writeFile(workbook, filename);
+    XLSX.writeFile(workbook, fileName || 'simulation_results.xlsx');
   };
 
   const getStageColor = (stage: string) => {
@@ -529,10 +639,15 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
     });
   });
 
-  const avgReturnsByStage = Object.entries(stageReturns).map(([stage, data]) => ({
-    stage,
-    avgReturn: data.count > 0 ? data.totalReturn / data.count : 0
-  }));
+  const stageOrder = ['Pre-Seed', 'Seed', 'Series A', 'Series B', 'Series C', 'IPO'];
+
+  const avgReturnsByStage = stageOrder.map(stage => {
+    const data = stageReturns[stage] || { totalReturn: 0, count: 0 };
+    return {
+      stage,
+      avgReturn: data.count > 0 ? data.totalReturn / data.count : 0
+    };
+  });
 
   const currentSimulationData = results.simulations[currentSimulation] || [];
 
@@ -549,8 +664,9 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
       {/* Export Button */}
       <div className="flex justify-end">
         <Button 
-          onClick={exportToExcel}
+          onClick={()=>setShowExportDialog(true)}
           className="bg-black hover:bg-gray-800 text-white gap-2"
+          type="button"
         >
           <FileSpreadsheet className="w-4 h-4" />
           Export to Excel
@@ -823,6 +939,39 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
           </div>
         </CardContent>
       </Card>
+
+      {/* Export Dialog */}
+      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export Simulation to Excel</DialogTitle>
+            <DialogDescription>Select sheets to include ("All Outcomes" can be large) and file name.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Label htmlFor="fileName">File name</Label>
+            <Input id="fileName" value={fileName} onChange={e=>setFileName(e.target.value)} />
+            <div className="space-y-2">
+              {[
+                ['summary','Summary'],
+                ['fundInputs','Fund Inputs'],
+                ['assumptions','Assumptions'],
+                ['allOutcomes','All Outcomes (large)'],
+                ['avgOutcomes','Average Outcomes'],
+                ['statistics','Statistics']
+              ].map(([key,label])=> (
+                <div key={key} className="flex items-center gap-2">
+                  <Checkbox id={key} checked={selectedSheets[key as string]} onCheckedChange={()=>toggleSheet(key as string)} />
+                  <Label htmlFor={key}>{label}</Label>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={()=>setShowExportDialog(false)}>Cancel</Button>
+              <Button onClick={()=>{exportToExcel(); setShowExportDialog(false);}}>Export</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

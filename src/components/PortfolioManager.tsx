@@ -620,7 +620,7 @@ const PortfolioManager = ({
             <Button 
               onClick={user ? () => setShowLoadDialog(true) : undefined} 
               variant="outline"
-              disabled={!user || loading || investments.length === 0}
+              disabled={!user || loading}
               className={`w-40 h-9 ${user 
                 ? 'border-blue-200 hover:border-blue-300 bg-blue-50 hover:bg-blue-100' 
                 : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
@@ -648,7 +648,7 @@ const PortfolioManager = ({
             <Button 
               onClick={user ? () => setShowCustomSetsManager(true) : undefined} 
               variant="outline"
-              disabled={!user || investments.length === 0}
+              disabled={!user}
               className={`w-32 h-9 ${user 
                 ? 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50' 
                 : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
@@ -659,28 +659,27 @@ const PortfolioManager = ({
             </Button>
           </div>
 
-          {/* Right column: Share Actions (only show if user is authenticated) */}
-          {user && (
-            <div className="flex flex-col gap-2 ml-auto">
-              <Button 
-                onClick={onShareClick}
-                disabled={!portfolioData || portfolioData.length === 0}
-                variant="outline"
-                className="w-36 h-9"
-              >
-                <Share2 className="w-4 h-4 mr-2" />
-                Share Portfolio
-              </Button>
-              <Button 
-                onClick={onViewSharedClick}
-                variant="outline"
-                className="w-36 h-9"
-              >
-                <Bell className="w-4 h-4 mr-2" />
-                View Shared
-              </Button>
-            </div>
-          )}
+          {/* Right column: Share Actions (always visible) */}
+          <div className="flex flex-col gap-2 ml-auto">
+            <Button
+              onClick={user ? onShareClick : undefined}
+              disabled={!user || !portfolioData || portfolioData.length === 0}
+              variant="outline"
+              className={`w-36 h-9 ${user ? '' : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'}`}
+            >
+              <Share2 className="w-4 h-4 mr-2" />
+              Share Portfolio
+            </Button>
+            <Button
+              onClick={user ? onViewSharedClick : undefined}
+              disabled={!user}
+              variant="outline"
+              className={`w-36 h-9 ${user ? '' : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'}`}
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              View Shared
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
