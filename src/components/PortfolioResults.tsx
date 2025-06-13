@@ -4,15 +4,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ChevronLeft, ChevronRight, Rocket, TrendingUp, FileSpreadsheet } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import type { PortfolioResults, PortfolioInvestment, PortfolioSimulationParams } from '@/types/portfolio';
 
 interface PortfolioResultsProps {
   results: PortfolioResults;
   investments: PortfolioInvestment[];
+  params?: PortfolioSimulationParams;
 }
 
-const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
+const PortfolioResults = ({ results, investments, params }: PortfolioResultsProps) => {
   const [currentSimulation, setCurrentSimulation] = useState(0);
 
   const exportToExcel = () => {
@@ -83,8 +84,17 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
 
     // Fund Inputs Sheet
     const totalInvestments = investments.reduce((sum, inv) => sum + inv.checkSize, 0);
+    const totalFees = params ? params.setupFees + params.managementFees * params.managementFeeYears : 0;
     const fundInputsData = [
       ["FUND INPUTS", "", "", ""],
+      ["", "", "", ""],
+      ["Fees", "", "", ""],
+      ...(params ? [
+        ["Setup Fees ($MM):", params.setupFees.toFixed(2), "", ""],
+        ["Management Fees (% per yr):", params.managementFees.toFixed(2), "", ""],
+        ["Management Fee Years:", params.managementFeeYears.toString(), "", ""],
+        ["Total Fees ($MM):", totalFees.toFixed(2), "", ""],
+      ] : []),
       ["", "", "", ""],
       ["Portfolio Composition", "", "", ""],
       ["Number of Investments:", investments.length.toString(), "", ""],
@@ -113,7 +123,7 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
     }};
 
     // Style the table headers
-    const headerRow = 10; // "Company Name" row
+    const headerRow = params ? 15 : 10; // adjust index if fees rows added
     for (let col = 0; col < 7; col++) {
       const cellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
       if (fundInputsSheet[cellRef]) {
@@ -124,12 +134,14 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
       }
     }
     
+    (fundInputsSheet as any)["!freeze"] = { xSplit: 0, ySplit: 1 };
+    
     XLSX.utils.book_append_sheet(workbook, fundInputsSheet, "Fund Inputs");
 
     // Investment Assumptions Sheet
     const assumptionsData = [
-      ["INVESTMENT ASSUMPTIONS", "", "", "", "", "", "", ""],
-      ["", "", "", "", "", "", "", ""],
+      ["INVESTMENT ASSUMPTIONS", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
       ["Company", "Stage Progression (%)", "", "", "", "", "Dilution Rates (%)", ""],
       ["", "To Seed", "To Series A", "To Series B", "To Series C", "To IPO", "Seed", "Series A", "Series B", "Series C", "IPO"],
       ...investments.map(inv => [
@@ -145,8 +157,8 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
         inv.dilutionRates.seriesC || 0,
         inv.dilutionRates.ipo || 0
       ]),
-      ["", "", "", "", "", "", "", "", "", "", ""],
-      ["Exit Valuation Ranges ($MM)", "", "", "", "", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["Exit Valuation Ranges ($MM)", "", "", "", "", "", "", "", "", "", "", "", "", ""],
       ["Company", "Pre-Seed Min", "Pre-Seed Max", "Seed Min", "Seed Max", "Series A Min", "Series A Max", "Series B Min", "Series B Max", "Series C Min", "Series C Max", "IPO Min", "IPO Max"],
       ...investments.map(inv => [
         inv.companyName,
@@ -163,9 +175,9 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
         inv.exitValuations.ipo[0],
         inv.exitValuations.ipo[1]
       ]),
-      ["", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Loss Probabilities (%)", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Company", "Pre-Seed", "Seed", "Series A", "Series B", "Series C", "IPO", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["Loss Probabilities (%)", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["Company", "Pre-Seed", "Seed", "Series A", "Series B", "Series C", "IPO", "", "", "", "", "", "", ""],
       ...investments.map(inv => [
         inv.companyName,
         inv.lossProb.preSeed,
@@ -174,7 +186,7 @@ const PortfolioResults = ({ results, investments }: PortfolioResultsProps) => {
         inv.lossProb.seriesB,
         inv.lossProb.seriesC,
         inv.lossProb.ipo,
-        "", "", "", "", "", ""
+        "", "", "", "", "", "", ""
       ])
     ];
 

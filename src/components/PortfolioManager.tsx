@@ -42,6 +42,16 @@ interface PortfolioManagerProps {
   
   // Expose import functionality for shared simulations
   onImportInvestments?: (investments: PortfolioInvestment[]) => Promise<void>;
+
+  // Optional CRUD function props
+  addInvestment?: (investment: PortfolioInvestment) => Promise<void>;
+  updateInvestment?: (id: string, updates: Partial<PortfolioInvestment>) => Promise<void>;
+  deleteInvestment?: (id: string) => Promise<void>;
+  savePortfolioToCloud?: (name: string, description?: string) => Promise<{ success: boolean; message: string }>;
+  loadPortfolioFromCloud?: (portfolioId: string) => Promise<{ success: boolean; message: string }>;
+  getSavedPortfolios?: () => Promise<any[]>;
+  deletePortfolioFromCloud?: (portfolioId: string) => Promise<{ success: boolean; message: string }>;
+  refreshData?: () => Promise<void>;
 }
 
 const stages = ['Pre-Seed', 'Seed', 'Series A', 'Series B', 'Series C', 'IPO'];
@@ -141,7 +151,15 @@ const PortfolioManager = ({
   onShareClick,
   onViewSharedClick,
   unreadCount,
-  onImportInvestments
+  onImportInvestments,
+  addInvestment: addInvestmentProp,
+  updateInvestment: updateInvestmentProp,
+  deleteInvestment: deleteInvestmentProp,
+  savePortfolioToCloud: savePortfolioToCloudProp,
+  loadPortfolioFromCloud: loadPortfolioFromCloudProp,
+  getSavedPortfolios: getSavedPortfoliosProp,
+  deletePortfolioFromCloud: deletePortfolioFromCloudProp,
+  refreshData: refreshDataProp
 }: PortfolioManagerProps) => {
   const { user } = useAuth();
   const { showSuccess, showError } = useNotifications();
@@ -232,7 +250,7 @@ const PortfolioManager = ({
     if (!user) return;
     
     try {
-      const result = await savePortfolioToCloud(name, description);
+      const result = await savePortfolioToCloudFn(name, description);
       showSuccess('Portfolio Saved', result.message);
     } catch (error: any) {
       console.error('Error saving portfolio to cloud:', error);
@@ -244,9 +262,9 @@ const PortfolioManager = ({
     if (!user) return;
     
     try {
-      const result = await loadPortfolioFromCloud(portfolioId);
+      const result = await loadPortfolioFromCloudFn(portfolioId);
       showSuccess('Portfolio Loaded', result.message);
-      await refreshData();
+      await refreshDataFn();
     } catch (error: any) {
       console.error('Error loading portfolio from cloud:', error);
       showError('Load Failed', error.message || 'Failed to load portfolio from cloud');
@@ -257,7 +275,7 @@ const PortfolioManager = ({
     if (!user) return;
     
     try {
-      const result = await deletePortfolioFromCloud(portfolioId);
+      const result = await deletePortfolioFromCloudFn(portfolioId);
       showSuccess('Portfolio Deleted', result.message);
     } catch (error: any) {
       console.error('Error deleting portfolio from cloud:', error);
@@ -269,7 +287,8 @@ const PortfolioManager = ({
     if (!newInvestment) return;
     
     try {
-      await addInvestment({ ...newInvestment, id: Date.now().toString() });
+      const localAddInvestmentFn = addInvestmentProp || addInvestment;
+      await localAddInvestmentFn({ ...newInvestment, id: Date.now().toString() });
       setShowAddForm(false);
       setNewInvestment(null);
     } catch (error) {
@@ -524,6 +543,17 @@ const PortfolioManager = ({
     ? investments.reduce((sum, inv) => sum + inv.entryValuation, 0) / investments.length
     : 0;
 
+  // Use CRUD functions passed via props if available, otherwise fall back to hook versions
+  const updateInvestmentFn = updateInvestmentProp || updateInvestment;
+  const deleteInvestmentFn = deleteInvestmentProp || deleteInvestment;
+
+  // After hookData destructuring, define fallback functions
+  const savePortfolioToCloudFn = savePortfolioToCloudProp || savePortfolioToCloud;
+  const loadPortfolioFromCloudFn = loadPortfolioFromCloudProp || loadPortfolioFromCloud;
+  const getSavedPortfoliosFn = getSavedPortfoliosProp || getSavedPortfolios;
+  const deletePortfolioFromCloudFn = deletePortfolioFromCloudProp || deletePortfolioFromCloud;
+  const refreshDataFn = refreshDataProp || refreshData;
+
   return (
     <Card>
       <CardHeader>
@@ -546,16 +576,6 @@ const PortfolioManager = ({
                 <div className="flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
                   <CloudOff className="w-3 h-3" />
                   Local Only
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="w-3 h-3 ml-1 cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Connect to have access to all features</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
               )}
             </div>
@@ -588,6 +608,7 @@ const PortfolioManager = ({
               size="sm" 
               variant="outline"
               className="w-24"
+              disabled={investments.length === 0}
             >
               <Upload className="w-4 h-4 mr-2" />
               Export
@@ -599,7 +620,7 @@ const PortfolioManager = ({
             <Button 
               onClick={user ? () => setShowLoadDialog(true) : undefined} 
               variant="outline"
-              disabled={!user || loading}
+              disabled={!user || loading || investments.length === 0}
               className={`w-40 h-9 ${user 
                 ? 'border-blue-200 hover:border-blue-300 bg-blue-50 hover:bg-blue-100' 
                 : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
@@ -611,7 +632,7 @@ const PortfolioManager = ({
             <Button 
               onClick={user ? () => setShowSaveDialog(true) : undefined} 
               variant="outline"
-              disabled={!user || loading}
+              disabled={!user || loading || investments.length === 0}
               className={`w-40 h-9 ${user 
                 ? 'border-green-200 hover:border-green-300 bg-green-50 hover:bg-green-100' 
                 : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
@@ -627,7 +648,7 @@ const PortfolioManager = ({
             <Button 
               onClick={user ? () => setShowCustomSetsManager(true) : undefined} 
               variant="outline"
-              disabled={!user}
+              disabled={!user || investments.length === 0}
               className={`w-32 h-9 ${user 
                 ? 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50' 
                 : 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
@@ -856,7 +877,7 @@ const PortfolioManager = ({
               {editingId === investment.id ? (
                 <InvestmentForm
                   investment={investment}
-                  onUpdate={(updates) => updateInvestment(investment.id, updates)}
+                  onUpdate={(updates) => updateInvestmentFn(investment.id, updates)}
                 />
               ) : (
                 <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -921,7 +942,7 @@ const PortfolioManager = ({
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => deleteInvestment(investment.id)}
+                      onClick={() => deleteInvestmentFn(investment.id)}
                       className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -978,7 +999,7 @@ const PortfolioManager = ({
         onOpenChange={setShowLoadDialog}
         onLoad={handleLoadPortfolioFromCloud}
         onDelete={handleDeletePortfolioFromCloud}
-        getSavedPortfolios={getSavedPortfolios}
+        getSavedPortfolios={getSavedPortfoliosFn}
         loading={loading}
       />
 

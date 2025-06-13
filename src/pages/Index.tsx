@@ -35,7 +35,15 @@ const Index = () => {
   const { 
     investments: portfolioInvestments, 
     customParameterSets, 
-    importInvestments 
+    importInvestments,
+    addInvestment,
+    updateInvestment,
+    deleteInvestment,
+    savePortfolioToCloud,
+    loadPortfolioFromCloud,
+    getSavedPortfolios,
+    deletePortfolioFromCloud,
+    refreshData
   } = usePortfolioData();
 
   // Shared simulation state
@@ -156,11 +164,15 @@ const Index = () => {
       <div className="bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900">VC Portfolio Simulator</h1>
-              <p className="text-slate-600 mt-1">
-                Model venture capital fund performance with Monte Carlo simulation
-              </p>
+            <div className="flex items-start gap-3">
+              <img src="/SRV.png" alt="SRV logo" className="w-20 h-20 object-contain" />
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900">VC Portfolio Simulator</h1>
+                <p className="text-slate-600 mt-1">
+                  Model venture capital fund performance with Monte Carlo simulation
+                </p>
+                <p className="text-xs text-slate-500 mt-1 italic">Solution proposed by Silicon Roundabout Ventures</p>
+              </div>
             </div>
             
             {/* Authentication Section */}
@@ -226,6 +238,14 @@ const Index = () => {
                   portfolioData={portfolioInvestments}
                   simulationParams={portfolioParams}
                   customSets={customParameterSets}
+                  addInvestment={addInvestment}
+                  updateInvestment={updateInvestment}
+                  deleteInvestment={deleteInvestment}
+                  savePortfolioToCloud={savePortfolioToCloud}
+                  loadPortfolioFromCloud={loadPortfolioFromCloud}
+                  getSavedPortfolios={getSavedPortfolios}
+                  deletePortfolioFromCloud={deletePortfolioFromCloud}
+                  refreshData={refreshData}
                   onShareClick={() => setShowShareDialog(true)}
                   onViewSharedClick={() => setShowSharedSimulationsDialog(true)}
                   unreadCount={unreadCount}
@@ -436,6 +456,7 @@ const Index = () => {
                 <PortfolioResults 
                   results={portfolioResults} 
                   investments={portfolioInvestments}
+                  params={portfolioParams}
                 />
               </div>
             )}
