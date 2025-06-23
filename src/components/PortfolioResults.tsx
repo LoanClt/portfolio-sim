@@ -2,14 +2,19 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ChevronLeft, ChevronRight, Rocket, TrendingUp, FileSpreadsheet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Rocket, TrendingUp, FileSpreadsheet, Zap, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import type { PortfolioResults, PortfolioInvestment, PortfolioSimulationParams } from '@/types/portfolio';
+import type { SensitivityAnalysis } from '@/types/portfolio';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import SensitivityAnalysisDashboard from './SensitivityAnalysisDashboard';
+import { runSensitivityAnalysis, type ExtendedSensitivityAnalysisParams } from '@/utils/sensitivityAnalysis';
 
 interface PortfolioResultsProps {
   results: PortfolioResults;
@@ -21,6 +26,10 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
   const [currentSimulation, setCurrentSimulation] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [fileName, setFileName] = useState('simulation_results.xlsx');
+  const [activeTab, setActiveTab] = useState('base-results');
+  const [sensitivityAnalysis, setSensitivityAnalysis] = useState<SensitivityAnalysis | null>(null);
+  const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState({ progress: 0, step: '' });
   const [selectedSheets, setSelectedSheets] = useState<{[key:string]:boolean}>({
     summary: true,
     fundInputs: true,
@@ -31,6 +40,42 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
   });
 
   const toggleSheet = (key: string) => setSelectedSheets(prev => ({...prev, [key]: !prev[key]}));
+
+  // Run sensitivity analysis
+  const runSensitivityAnalysisHandler = async () => {
+    if (!params) {
+      console.error('Cannot run sensitivity analysis without simulation parameters');
+      return;
+    }
+
+    console.log('Starting sensitivity analysis...'); // Debug log
+    setIsRunningAnalysis(true);
+    setAnalysisProgress({ progress: 0, step: 'Starting analysis...' });
+    console.log('Initial state set, isRunningAnalysis:', true); // Debug log
+    
+    try {
+      // Use existing results as baseline instead of re-running
+      const analysis = await runSensitivityAnalysis({
+        investments,
+        simulationParams: params,
+        baselineResults: results, // Pass existing results
+        maxAdjustmentPercent: 50,
+        stepSize: 5,
+        onProgress: (progress, step) => {
+          console.log(`UI Progress: ${progress.toFixed(1)}% - ${step}`); // Debug log
+          setAnalysisProgress({ progress, step });
+        }
+      });
+      
+      setSensitivityAnalysis(analysis);
+      setActiveTab('sensitivity-analysis');
+    } catch (error) {
+      console.error('Error running sensitivity analysis:', error);
+    } finally {
+      setIsRunningAnalysis(false);
+      setAnalysisProgress({ progress: 0, step: '' });
+    }
+  };
 
   const exportToExcel = () => {
     const workbook = XLSX.utils.book_new();
@@ -661,8 +706,36 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
 
   return (
     <div className="space-y-6">
-      {/* Export Button */}
-      <div className="flex justify-end">
+      {/* Action Buttons */}
+      <div className="flex justify-between items-center">
+        <div className="flex gap-2">
+          {params && (
+            <div className="space-y-2">
+              <Button 
+                onClick={runSensitivityAnalysisHandler}
+                disabled={isRunningAnalysis}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white gap-2"
+                type="button"
+              >
+                {isRunningAnalysis ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Zap className="w-4 h-4" />
+                )}
+                {isRunningAnalysis ? 'Running Analysis...' : 'Run Sensitivity Analysis'}
+              </Button>
+              {isRunningAnalysis && (
+                <div className="w-60 space-y-1">
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>{analysisProgress.step || 'Processing...'}</span>
+                    <span>{Math.round(analysisProgress.progress || 0)}%</span>
+                  </div>
+                  <Progress value={analysisProgress.progress || 0} className="h-2" />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <Button 
           onClick={()=>setShowExportDialog(true)}
           className="bg-black hover:bg-gray-800 text-white gap-2"
@@ -672,6 +745,16 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
           Export to Excel
         </Button>
       </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="base-results">Base Results</TabsTrigger>
+          <TabsTrigger value="sensitivity-analysis" disabled={!sensitivityAnalysis}>
+            Sensitivity Analysis
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="base-results" className="space-y-6">
 
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
@@ -939,6 +1022,47 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="sensitivity-analysis" className="space-y-6">
+          {sensitivityAnalysis ? (
+            <SensitivityAnalysisDashboard 
+              analysis={sensitivityAnalysis}
+              onExportResults={() => setShowExportDialog(true)}
+              investments={investments}
+            />
+          ) : (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Zap className="w-16 h-16 mx-auto text-gray-400 mb-4" />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  Run Sensitivity Analysis
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  Discover what assumptions you need to achieve higher MOIC targets.
+                </p>
+                <Button 
+                  onClick={runSensitivityAnalysisHandler}
+                  disabled={isRunningAnalysis || !params}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+                >
+                  {isRunningAnalysis ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Running Analysis...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 mr-2" />
+                      Run Analysis
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Export Dialog */}
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>

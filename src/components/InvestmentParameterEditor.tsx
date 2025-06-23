@@ -124,6 +124,7 @@ const InvestmentParameterEditor = ({ investment, onUpdate, customParameterSets }
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Select
+                    key={`custom-sets-${safeCustomParameterSets.length}-${safeCustomParameterSets.map(s => s.name).join('-')}`}
                     value={investment.customParameterSetId || ""}
                     onValueChange={applyCustomParameterSet}
                   >

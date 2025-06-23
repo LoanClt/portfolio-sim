@@ -107,6 +107,7 @@ const CustomParameterSetManager = ({
 
   const createSet = async (setData: Omit<CustomParameterSet, 'id' | 'createdAt'>) => {
     try {
+      console.log('Creating custom set with data:', setData);
       if (onAddSet) {
         // Use hook-based approach (database)
         const newSet: CustomParameterSet = {
@@ -114,7 +115,9 @@ const CustomParameterSetManager = ({
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString()
         };
+        console.log('Calling onAddSet with:', newSet);
         await onAddSet(newSet);
+        console.log('onAddSet completed successfully');
       } else if (onSetsChange) {
         // Use legacy callback approach (localStorage)
         const newSet: CustomParameterSet = {
@@ -122,27 +125,36 @@ const CustomParameterSetManager = ({
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString()
         };
+        console.log('Calling onSetsChange with:', newSet);
         onSetsChange([...customSets, newSet]);
       }
       setIsCreateDialogOpen(false);
     } catch (error) {
       console.error('Failed to create custom parameter set:', error);
+      // Don't close dialog on error so user can retry
     }
   };
 
   const updateSet = async (updatedSet: CustomParameterSet) => {
     try {
+      console.log('Updating custom set:', updatedSet);
       if (onUpdateSet) {
         // Use hook-based approach (database)
-        await onUpdateSet(updatedSet.id, updatedSet);
+        // Extract the updates (everything except id and createdAt)
+        const { id, createdAt, ...updates } = updatedSet;
+        console.log('Calling onUpdateSet with id:', id, 'updates:', updates);
+        await onUpdateSet(updatedSet.id, updates);
+        console.log('onUpdateSet completed successfully');
       } else if (onSetsChange) {
         // Use legacy callback approach (localStorage)
+        console.log('Calling onSetsChange for update');
         onSetsChange(customSets.map(set => set.id === updatedSet.id ? updatedSet : set));
       }
       setIsEditDialogOpen(false);
       setEditingSet(null);
     } catch (error) {
       console.error('Failed to update custom parameter set:', error);
+      // Don't close dialog on error so user can retry
     }
   };
 
@@ -162,6 +174,7 @@ const CustomParameterSetManager = ({
 
   const duplicateSet = async (originalSet: CustomParameterSet) => {
     try {
+      // Optimistically create the duplicated set
       const duplicatedSet: CustomParameterSet = {
         ...originalSet,
         id: crypto.randomUUID(),

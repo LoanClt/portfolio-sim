@@ -263,10 +263,16 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
   // Custom parameter set operations (database when authenticated, localStorage otherwise)
   const addCustomParameterSet = useCallback(async (customSet: CustomParameterSet) => {
     try {
+      console.log('Hook: addCustomParameterSet called with:', customSet);
+      console.log('Hook: user is:', user ? 'authenticated' : 'not authenticated');
+      console.log('Hook: current customParameterSets length:', customParameterSets.length);
       if (user) {
         // Save to database
+        console.log('Hook: Saving to database');
         const dbRow = customSetToDbRow(customSet);
+        console.log('Hook: dbRow created:', dbRow);
         const { id, ...insertRow } = dbRow; // Remove id to let database generate UUID
+        console.log('Hook: insertRow (without id):', insertRow);
         
         const { data, error } = await supabase
           .from('custom_parameter_sets')
@@ -275,20 +281,27 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
           .single();
 
         if (error) throw error;
+        console.log('Hook: Database insert successful, data:', data);
 
         const newCustomSet = dbRowToCustomSet(data);
+        console.log('Hook: Converted back to CustomParameterSet:', newCustomSet);
         setCustomParameterSets(prev => [...prev, newCustomSet]);
+        console.log('Hook: State updated');
         showSuccess('Custom Set Created', `"${customSet.name}" has been saved to the cloud`);
       } else {
         // Save to localStorage
+        console.log('Hook: Saving to localStorage');
         const newCustomSet = { ...customSet, id: customSet.id || generateId() };
+        console.log('Hook: newCustomSet for localStorage:', newCustomSet);
         const updatedCustomSets = [...customParameterSets, newCustomSet];
         
         setCustomParameterSets(updatedCustomSets);
         saveToStorage(STORAGE_KEYS.CUSTOM_SETS, updatedCustomSets);
+        console.log('Hook: localStorage updated, new length:', updatedCustomSets.length);
         showSuccess('Custom Set Created', `"${customSet.name}" has been saved locally`);
       }
     } catch (error: any) {
+      console.error('Hook: Error in addCustomParameterSet:', error);
       const errorMessage = `Failed to create custom set: ${error.message}`;
       showError('Creation Failed', errorMessage);
       throw new Error(errorMessage);
@@ -297,12 +310,17 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
 
   const updateCustomParameterSet = useCallback(async (id: string, updates: Partial<CustomParameterSet>) => {
     try {
+      console.log('Hook: updateCustomParameterSet called with id:', id, 'updates:', updates);
+      console.log('Hook: user is:', user ? 'authenticated' : 'not authenticated');
       if (user) {
         // Update in database
+        console.log('Hook: Updating in database');
         const currentSet = customParameterSets.find(set => set.id === id);
         if (!currentSet) throw new Error('Custom set not found');
+        console.log('Hook: Found current set:', currentSet);
 
         const updatedSet = { ...currentSet, ...updates };
+        console.log('Hook: Updated set:', updatedSet);
         const dbRow = customSetToDbRow(updatedSet);
 
         const { data, error } = await supabase
@@ -314,21 +332,27 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
           .single();
 
         if (error) throw error;
+        console.log('Hook: Database update successful, data:', data);
 
         const updatedCustomSet = dbRowToCustomSet(data);
+        console.log('Hook: Converted back to CustomParameterSet:', updatedCustomSet);
         setCustomParameterSets(prev => prev.map(set => set.id === id ? updatedCustomSet : set));
+        console.log('Hook: State updated');
         showSuccess('Custom Set Updated', `"${updatedCustomSet.name}" has been updated`);
       } else {
         // Update in localStorage
+        console.log('Hook: Updating in localStorage');
         const updatedCustomSets = customParameterSets.map(set => 
           set.id === id ? { ...set, ...updates } : set
         );
         
         setCustomParameterSets(updatedCustomSets);
         saveToStorage(STORAGE_KEYS.CUSTOM_SETS, updatedCustomSets);
+        console.log('Hook: localStorage updated');
         showSuccess('Custom Set Updated', 'Changes saved locally');
       }
     } catch (error: any) {
+      console.error('Hook: Error in updateCustomParameterSet:', error);
       const errorMessage = `Failed to update custom set: ${error.message}`;
       showError('Update Failed', errorMessage);
       throw new Error(errorMessage);

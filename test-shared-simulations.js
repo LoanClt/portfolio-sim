@@ -103,7 +103,7 @@ async function testSharedSimulations() {
     ];
 
     const sampleSimulationParams = {
-      numSimulations: 100,
+      numSimulations: 5000,
       setupFees: 2,
       managementFees: 2,
       managementFeeYears: 10,

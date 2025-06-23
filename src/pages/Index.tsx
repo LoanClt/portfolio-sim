@@ -57,7 +57,7 @@ const Index = () => {
 
   // Portfolio mode state
   const [portfolioParams, setPortfolioParams] = useState<PortfolioSimulationParams>({
-    numSimulations: 100,
+    numSimulations: 5000,
     setupFees: 2,
     managementFees: 2,
     managementFeeYears: 10,
@@ -285,7 +285,7 @@ const Index = () => {
                         value={portfolioParams.numSimulations}
                         onChange={(e) => setPortfolioParams({
                           ...portfolioParams,
-                          numSimulations: parseInt(e.target.value) || 100
+                          numSimulations: parseInt(e.target.value) || 5000
                         })}
                       />
                     </div>

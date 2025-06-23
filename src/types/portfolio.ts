@@ -159,6 +159,73 @@ export interface PortfolioResults {
   avgTotalInvested?: number;
 }
 
+// New interfaces for Sensitivity Analysis
+export interface ParameterAdjustments {
+  stageProgressionIncrease: number; // % increase in stage progression rates
+  dilutionRatesDecrease: number; // % decrease in dilution rates  
+  lossProbabilitiesDecrease: number; // % decrease in loss probabilities
+  exitValuationsIncrease: number; // % increase in exit valuations
+}
+
+// New interfaces for enhanced sensitivity analysis
+export interface SingleParameterResult {
+  parameterType: 'stageProgression' | 'dilutionRates' | 'lossProbabilities' | 'exitValuations';
+  adjustmentPercent: number;
+  achievable: boolean;
+  results: PortfolioResults | null;
+  actualRequirement?: number; // The actual percentage needed (might exceed bounds)
+  boundViolations?: string[]; // Descriptions of bound violations if not achievable
+}
+
+export interface AchievabilityFactor {
+  name: string;
+  score: number;
+  weight: number;
+  explanation: string;
+}
+
+export interface EnhancedAchievabilityScore {
+  score: number;
+  explanation: string;
+  factors: AchievabilityFactor[];
+}
+
+export interface MixedParameterOption {
+  name: string;
+  description: string;
+  adjustments: ParameterAdjustments;
+  results: PortfolioResults;
+  totalAdjustment: number; // Sum of all adjustments for ranking
+  approachType: 'balanced' | 'exit-focused' | 'success-focused' | 'conservative' | 'aggressive';
+}
+
+export interface TargetScenario {
+  targetMOIC: number;
+  requiredAdjustments: ParameterAdjustments;
+  adjustedResults: PortfolioResults;
+  achievabilityScore: number; // 0-100
+  isRealistic: boolean; // true if adjustments <= 20%
+  enhancedAchievability: EnhancedAchievabilityScore;
+  singleParameterOptions: SingleParameterResult[];
+  mixedParameterOption: ParameterAdjustments | null;
+  mixedParameterOptions?: MixedParameterOption[]; // Multiple optimal solutions
+}
+
+export interface SensitivityAnalysis {
+  baselineResults: PortfolioResults;
+  targetScenarios: TargetScenario[];
+  baselineMOIC: number;
+  targetMOICs: number[]; // e.g., [2, 3, 4, 5, 6, 7, 8, 9, 10]
+}
+
+export interface SensitivityAnalysisParams {
+  investments: PortfolioInvestment[];
+  simulationParams: PortfolioSimulationParams;
+  baselineResults?: PortfolioResults; // Use existing results as baseline
+  maxAdjustmentPercent?: number; // default 50%
+  stepSize?: number; // default 5%
+}
+
 export interface StartupFieldPresets {
   stageProgression: {
     toSeed: number;
