@@ -864,7 +864,7 @@ function generateStrategicCombinations(targetMOIC: number, maxAdjustment: number
 /**
  * Apply parameter adjustments to investments (with error handling)
  */
-function applyParameterAdjustments(
+export function applyParameterAdjustments(
   investments: PortfolioInvestment[],
   adjustments: ParameterAdjustments
 ): PortfolioInvestment[] {

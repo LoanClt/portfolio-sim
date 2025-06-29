@@ -7,6 +7,7 @@ interface AuthContextType {
   session: Session | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
+  signInWithGoogle: () => Promise<void>
   signUp: (email: string, password: string, fullName?: string) => Promise<void>
   signOut: () => Promise<void>
 }
@@ -84,6 +85,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  const signInWithGoogle = async () => {
+    setLoading(true)
+    try {
+      await authService.signInWithGoogle()
+      // Note: The redirect will happen automatically, 
+      // so we don't need to set user/session here
+    } catch (error) {
+      console.error('Google sign in error:', error)
+      setLoading(false)
+      throw error
+    }
+  }
+
   const signUp = async (email: string, password: string, fullName?: string) => {
     setLoading(true)
     try {
@@ -120,6 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     session,
     loading,
     signIn,
+    signInWithGoogle,
     signUp,
     signOut,
   }

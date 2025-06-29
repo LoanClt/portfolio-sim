@@ -12,18 +12,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { 
   Plus, Edit, Trash2, Copy, Target, Rocket, Brain, Heart, 
   Zap, Globe, Building, Cpu, Star, Shield, Trophy, Crown,
-  Diamond, Gem, Wand2, Sparkles, Info
+  Diamond, Gem, Wand2, Sparkles, Info, Loader2
 } from 'lucide-react';
 import type { CustomParameterSet } from '@/types/portfolio';
-
-interface CustomParameterSetManagerProps {
-  customSets: CustomParameterSet[];
-  onSetsChange?: (sets: CustomParameterSet[]) => void;
-  // Hook-based functions (optional, for database mode)
-  onAddSet?: (set: CustomParameterSet) => Promise<void>;
-  onUpdateSet?: (id: string, updates: Partial<CustomParameterSet>) => Promise<void>;
-  onDeleteSet?: (id: string) => Promise<void>;
-}
+import { useCustomSets } from '@/hooks/useCustomSets';
 
 const AVAILABLE_ICONS = [
   { name: 'Target', component: Target },
@@ -94,200 +86,158 @@ const defaultParameterSet: Omit<CustomParameterSet, 'id' | 'createdAt'> = {
   }
 };
 
-const CustomParameterSetManager = ({ 
-  customSets, 
-  onSetsChange, 
-  onAddSet, 
-  onUpdateSet, 
-  onDeleteSet 
-}: CustomParameterSetManagerProps) => {
+const CustomParameterSetManager = () => {
+  const { sets, loading, addSet, updateSet, deleteSet } = useCustomSets();
   const [editingSet, setEditingSet] = useState<CustomParameterSet | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   const createSet = async (setData: Omit<CustomParameterSet, 'id' | 'createdAt'>) => {
     try {
-      console.log('Creating custom set with data:', setData);
-      if (onAddSet) {
-        // Use hook-based approach (database)
-        const newSet: CustomParameterSet = {
-          ...setData,
-          id: crypto.randomUUID(),
-          createdAt: new Date().toISOString()
-        };
-        console.log('Calling onAddSet with:', newSet);
-        await onAddSet(newSet);
-        console.log('onAddSet completed successfully');
-      } else if (onSetsChange) {
-        // Use legacy callback approach (localStorage)
-        const newSet: CustomParameterSet = {
-          ...setData,
-          id: crypto.randomUUID(),
-          createdAt: new Date().toISOString()
-        };
-        console.log('Calling onSetsChange with:', newSet);
-        onSetsChange([...customSets, newSet]);
-      }
+      await addSet(setData);
       setIsCreateDialogOpen(false);
     } catch (error) {
-      console.error('Failed to create custom parameter set:', error);
-      // Don't close dialog on error so user can retry
+      // Error is already handled by the hook
     }
   };
 
-  const updateSet = async (updatedSet: CustomParameterSet) => {
+  const updateCustomSet = async (updatedSet: CustomParameterSet) => {
     try {
-      console.log('Updating custom set:', updatedSet);
-      if (onUpdateSet) {
-        // Use hook-based approach (database)
-        // Extract the updates (everything except id and createdAt)
-        const { id, createdAt, ...updates } = updatedSet;
-        console.log('Calling onUpdateSet with id:', id, 'updates:', updates);
-        await onUpdateSet(updatedSet.id, updates);
-        console.log('onUpdateSet completed successfully');
-      } else if (onSetsChange) {
-        // Use legacy callback approach (localStorage)
-        console.log('Calling onSetsChange for update');
-        onSetsChange(customSets.map(set => set.id === updatedSet.id ? updatedSet : set));
-      }
+      const { id, createdAt, ...updates } = updatedSet;
+      await updateSet(updatedSet.id, updates);
       setIsEditDialogOpen(false);
       setEditingSet(null);
     } catch (error) {
-      console.error('Failed to update custom parameter set:', error);
-      // Don't close dialog on error so user can retry
+      // Error is already handled by the hook
     }
   };
 
-  const deleteSet = async (setId: string) => {
+  const deleteCustomSet = async (setId: string) => {
+    if (!confirm('Are you sure you want to delete this custom set?')) {
+      return;
+    }
+
     try {
-      if (onDeleteSet) {
-        // Use hook-based approach (database)
-        await onDeleteSet(setId);
-      } else if (onSetsChange) {
-        // Use legacy callback approach (localStorage)
-        onSetsChange(customSets.filter(set => set.id !== setId));
-      }
+      await deleteSet(setId);
     } catch (error) {
-      console.error('Failed to delete custom parameter set:', error);
+      // Error is already handled by the hook
     }
   };
 
   const duplicateSet = async (originalSet: CustomParameterSet) => {
     try {
-      // Optimistically create the duplicated set
-      const duplicatedSet: CustomParameterSet = {
-        ...originalSet,
-        id: crypto.randomUUID(),
+      const { id, createdAt, ...setData } = originalSet;
+      const duplicatedData = {
+        ...setData,
         name: `${originalSet.name} (Copy)`,
-        createdAt: new Date().toISOString()
       };
-      
-      if (onAddSet) {
-        // Use hook-based approach (database)
-        await onAddSet(duplicatedSet);
-      } else if (onSetsChange) {
-        // Use legacy callback approach (localStorage)
-        onSetsChange([...customSets, duplicatedSet]);
-      }
+      await addSet(duplicatedData);
     } catch (error) {
-      console.error('Failed to duplicate custom parameter set:', error);
+      // Error is already handled by the hook
     }
   };
 
   const getIconComponent = (iconName: string) => {
-    const iconData = AVAILABLE_ICONS.find(icon => icon.name === iconName);
-    return iconData?.component || Target;
+    const iconInfo = AVAILABLE_ICONS.find(icon => icon.name === iconName);
+    return iconInfo ? iconInfo.component : Target;
   };
 
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading Custom Sets...
+          </CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Custom Parameter Sets</CardTitle>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-2">
-                <Plus className="w-4 h-4" />
-                Create Set
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Create Custom Parameter Set</DialogTitle>
-              </DialogHeader>
-              <ParameterSetForm
-                initialData={defaultParameterSet}
-                onSubmit={createSet}
-                onCancel={() => setIsCreateDialogOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {customSets.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <Target className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg font-medium mb-2">No Custom Sets Yet</p>
-            <p className="text-sm mb-4">Create your first custom parameter set to get started</p>
-            <Button onClick={() => setIsCreateDialogOpen(true)} className="gap-2">
-              <Plus className="w-4 h-4" />
-              Create Your First Set
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Custom Parameter Sets</h3>
+        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Plus className="h-4 w-4 mr-1" />
+              Create Set
             </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {customSets.map(set => {
-              const IconComponent = getIconComponent(set.icon);
-              return (
-                <Card key={set.id} className="border-2 hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center gap-3">
-                      <Badge 
-                        variant="outline" 
-                        className="border-2 text-white font-medium px-3 py-1"
-                        style={{ 
-                          backgroundColor: set.color,
-                          borderColor: set.color
-                        }}
+          </DialogTrigger>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Create Custom Parameter Set</DialogTitle>
+            </DialogHeader>
+            <ParameterSetForm
+              initialData={defaultParameterSet}
+              onSubmit={createSet}
+              onCancel={() => setIsCreateDialogOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {sets.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-center">
+            <div className="flex flex-col items-center space-y-2">
+              <Target className="h-8 w-8 text-muted-foreground" />
+              <p className="text-muted-foreground">No custom parameter sets yet</p>
+              <p className="text-sm text-muted-foreground">Create your first set to get started</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {sets.map((set) => {
+            const IconComponent = getIconComponent(set.icon);
+            return (
+              <Card key={set.id} className="relative group">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div 
+                        className="p-2 rounded-lg"
+                        style={{ backgroundColor: `${set.color}20`, color: set.color }}
                       >
-                        <IconComponent className="w-4 h-4 mr-2" />
-                        {set.name}
-                      </Badge>
-                    </div>
-                    {set.description && (
-                      <p className="text-sm text-gray-600 mt-2">{set.description}</p>
-                    )}
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="space-y-2 text-xs text-gray-600 mb-4">
-                      <div className="flex justify-between">
-                        <span>Seed Progression:</span>
-                        <span>{set.stageProgression.toSeed}%</span>
+                        <IconComponent className="h-4 w-4" />
                       </div>
-                      <div className="flex justify-between">
-                        <span>Series A Progression:</span>
-                        <span>{set.stageProgression.toSeriesA}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Pre-Seed Loss Rate:</span>
-                        <span>{set.lossProb.preSeed}%</span>
+                      <div>
+                        <h4 className="font-medium text-sm">{set.name}</h4>
+                        {set.description && (
+                          <p className="text-xs text-muted-foreground mt-1">{set.description}</p>
+                        )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <Badge 
+                      variant="outline" 
+                      style={{ 
+                        borderColor: set.color,
+                        color: set.color,
+                        backgroundColor: `${set.color}10`
+                      }}
+                    >
+                      Custom
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex space-x-1">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
+                              variant="ghost"
                               size="sm"
-                              variant="outline"
                               onClick={() => {
                                 setEditingSet(set);
                                 setIsEditDialogOpen(true);
                               }}
-                              className="flex-1 gap-1"
                             >
-                              <Edit className="w-3 h-3" />
+                              <Edit className="h-3 w-3" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Edit</TooltipContent>
@@ -298,12 +248,11 @@ const CustomParameterSetManager = ({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
+                              variant="ghost"
                               size="sm"
-                              variant="outline"
                               onClick={() => duplicateSet(set)}
-                              className="flex-1 gap-1"
                             >
-                              <Copy className="w-3 h-3" />
+                              <Copy className="h-3 w-3" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Duplicate</TooltipContent>
@@ -314,46 +263,50 @@ const CustomParameterSetManager = ({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
+                              variant="ghost"
                               size="sm"
-                              variant="outline"
-                              onClick={() => deleteSet(set.id)}
-                              className="flex-1 gap-1 text-red-600 hover:text-red-700"
+                              onClick={() => deleteCustomSet(set.id)}
+                              className="text-red-600 hover:text-red-700"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="h-3 w-3" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Delete</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+                    
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(set.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
-        {/* Edit Dialog */}
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Custom Parameter Set</DialogTitle>
-            </DialogHeader>
-            {editingSet && (
-              <ParameterSetForm
-                initialData={editingSet}
-                onSubmit={updateSet}
-                onCancel={() => {
-                  setIsEditDialogOpen(false);
-                  setEditingSet(null);
-                }}
-                isEditing
-              />
-            )}
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Custom Parameter Set</DialogTitle>
+          </DialogHeader>
+          {editingSet && (
+            <ParameterSetForm
+              initialData={editingSet}
+              onSubmit={updateCustomSet}
+              onCancel={() => {
+                setIsEditDialogOpen(false);
+                setEditingSet(null);
+              }}
+              isEditing={true}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 

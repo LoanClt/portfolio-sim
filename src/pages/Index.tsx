@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Info, ExternalLink, AlertCircle, X, Share2 } from 'lucide-react';
+import { Play, Info, ExternalLink, AlertCircle, X, Share2, Github, Sparkles } from 'lucide-react';
 import PortfolioManager from '@/components/PortfolioManager';
 import PortfolioResults from '@/components/PortfolioResults';
 import { DebugPanel } from '@/components/DebugPanel';
@@ -15,6 +15,7 @@ import { AuthModal } from '@/components/AuthModal';
 import { UserProfileButton } from '@/components/UserProfileButton';
 import { ShareSimulationDialog } from '@/components/ShareSimulationDialog';
 import { SharedSimulationsDialog } from '@/components/SharedSimulationsDialog';
+import ForecastDashboard from '@/components/ForecastDashboard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { usePortfolioData } from '@/hooks/usePortfolioData';
@@ -54,6 +55,9 @@ const Index = () => {
   // Share simulation dialog state
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [showSharedSimulationsDialog, setShowSharedSimulationsDialog] = useState(false);
+  
+  // Forecast dashboard state
+  const [showForecastDashboard, setShowForecastDashboard] = useState(false);
 
   // Portfolio mode state
   const [portfolioParams, setPortfolioParams] = useState<PortfolioSimulationParams>({
@@ -177,6 +181,17 @@ const Index = () => {
             
             {/* Authentication Section */}
             <div className="flex items-center gap-3">
+              {/* GitHub Button */}
+              <Button
+                onClick={() => window.open('https://github.com/LoanClt/portfolio-sim', '_blank')}
+                variant="outline"
+                size="icon"
+                className="bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-700"
+                title="View on GitHub"
+              >
+                <Github className="w-4 h-4" />
+              </Button>
+              
               {loading ? (
                 <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
               ) : user ? (
@@ -495,6 +510,15 @@ const Index = () => {
         onOpenChange={setShowSharedSimulationsDialog}
         onLoadSharedSimulation={handleLoadSharedSimulation}
       />
+      
+      {/* Forecast Dashboard */}
+      {showForecastDashboard && (
+        <ForecastDashboard
+          portfolioData={portfolioInvestments}
+          simulationParams={portfolioParams}
+          onClose={() => setShowForecastDashboard(false)}
+        />
+      )}
     </div>
   );
 };

@@ -15,6 +15,21 @@ export const authService = {
     return { user: data.user, session: data.session }
   },
 
+  async signInWithGoogle() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+      }
+    })
+    if (error) throw error
+    return data
+  },
+
   async signUp(email: string, password: string, fullName?: string) {
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -63,16 +78,30 @@ export const authService = {
         .single()
 
       if (!existingAccount) {
+        // Extract name from user metadata (Google users have different structure)
+        let fullName = 'User'
+        
+        if (user.user_metadata?.full_name) {
+          fullName = user.user_metadata.full_name
+        } else if (user.user_metadata?.name) {
+          fullName = user.user_metadata.name
+        } else if (user.email) {
+          fullName = user.email.split('@')[0]
+        }
+
         const { error } = await supabase
           .from('accounts')
           .insert({
             id: user.id,
             email: user.email,
-            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            full_name: fullName,
+            avatar_url: user.user_metadata?.avatar_url || null,
           })
 
         if (error) {
           console.error('Error creating account:', error)
+        } else {
+          console.log('Account created successfully for user:', user.email)
         }
       }
     } catch (error) {

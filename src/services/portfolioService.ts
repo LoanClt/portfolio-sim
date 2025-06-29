@@ -238,16 +238,16 @@ const customParameterSetToDbRow = (customSet: CustomParameterSet, userId: string
     exit_valuations_ipo_min: customSet.exitValuations.ipo[0],
     exit_valuations_ipo_max: customSet.exitValuations.ipo[1],
     
-    years_to_next_to_seed_min: customSet.yearsToNext.toSeed?.[0],
-    years_to_next_to_seed_max: customSet.yearsToNext.toSeed?.[1],
-    years_to_next_to_series_a_min: customSet.yearsToNext.toSeriesA?.[0],
-    years_to_next_to_series_a_max: customSet.yearsToNext.toSeriesA?.[1],
-    years_to_next_to_series_b_min: customSet.yearsToNext.toSeriesB?.[0],
-    years_to_next_to_series_b_max: customSet.yearsToNext.toSeriesB?.[1],
-    years_to_next_to_series_c_min: customSet.yearsToNext.toSeriesC?.[0],
-    years_to_next_to_series_c_max: customSet.yearsToNext.toSeriesC?.[1],
-    years_to_next_to_ipo_min: customSet.yearsToNext.toIPO?.[0],
-    years_to_next_to_ipo_max: customSet.yearsToNext.toIPO?.[1],
+    years_to_next_to_seed_min: customSet.yearsToNext?.toSeed?.[0],
+    years_to_next_to_seed_max: customSet.yearsToNext?.toSeed?.[1],
+    years_to_next_to_series_a_min: customSet.yearsToNext?.toSeriesA?.[0],
+    years_to_next_to_series_a_max: customSet.yearsToNext?.toSeriesA?.[1],
+    years_to_next_to_series_b_min: customSet.yearsToNext?.toSeriesB?.[0],
+    years_to_next_to_series_b_max: customSet.yearsToNext?.toSeriesB?.[1],
+    years_to_next_to_series_c_min: customSet.yearsToNext?.toSeriesC?.[0],
+    years_to_next_to_series_c_max: customSet.yearsToNext?.toSeriesC?.[1],
+    years_to_next_to_ipo_min: customSet.yearsToNext?.toIPO?.[0],
+    years_to_next_to_ipo_max: customSet.yearsToNext?.toIPO?.[1],
   }
 }
 

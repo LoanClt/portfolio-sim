@@ -7,6 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { 
   BarChart, 
   Bar, 
@@ -19,7 +21,8 @@ import {
   Line,
   LineChart,
   Area,
-  AreaChart
+  AreaChart,
+  Legend
 } from 'recharts';
 import { 
   Target, 
@@ -36,11 +39,16 @@ import {
   XCircle as LossIcon,
   DollarSign as ExitIcon,
   DollarSign,
+  Settings,
   Settings as MixedIcon,
   ChevronDown,
-  Rocket
+  Rocket,
+  FileSpreadsheet
 } from 'lucide-react';
+
 import type { SensitivityAnalysis, TargetScenario, ParameterAdjustments, PortfolioResults } from '@/types/portfolio';
+import { runPortfolioSimulation } from '@/utils/portfolioSimulation';
+import { applyParameterAdjustments } from '@/utils/sensitivityAnalysis';
 import MOICTargetCard from './MOICTargetCard';
 import { getAchievabilityColor, getAchievabilityLabel } from '@/utils/sensitivityAnalysis';
 import { calculateAverageParameters } from '@/utils/sensitivityAnalysis';
@@ -127,6 +135,8 @@ const SensitivityAnalysisDashboard = ({
 
 
 
+
+
   // Prepare waterfall chart data (fixed)
   const waterfallData = useMemo(() => {
     const data = [
@@ -169,12 +179,6 @@ const SensitivityAnalysisDashboard = ({
             Discover what assumptions you need to achieve your target returns
           </p>
         </div>
-        {onExportResults && (
-          <Button onClick={onExportResults} variant="outline">
-            <Download className="w-4 h-4 mr-2" />
-            Export Analysis
-          </Button>
-        )}
       </div>
 
       {/* Baseline Summary */}
@@ -203,10 +207,11 @@ const SensitivityAnalysisDashboard = ({
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Target Overview</TabsTrigger>
           <TabsTrigger value="details">Scenario Details</TabsTrigger>
           <TabsTrigger value="comparison">Parameter Comparison</TabsTrigger>
+          <TabsTrigger value="evolution">Single Param. Evolution</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -284,6 +289,14 @@ const SensitivityAnalysisDashboard = ({
         {/* Comparison Tab */}
         <TabsContent value="comparison" className="space-y-6">
           <ParameterComparisonView scenarios={analysis.targetScenarios} />
+        </TabsContent>
+
+        {/* Evolution Tab */}
+        <TabsContent value="evolution" className="space-y-6">
+          <SingleParameterEvolutionView 
+            analysis={analysis} 
+            investments={investments}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -761,21 +774,48 @@ const ScenarioDetailView = ({
                 </Select>
               </div>
               {currentMixedOption && (
-                <div className="mt-3 p-3 bg-white border border-blue-100 rounded text-sm">
-                  <p className="text-blue-800 mb-2">{currentMixedOption.description}</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    {currentMixedOption.adjustments.stageProgressionIncrease > 0 && (
-                      <div className="text-blue-700">Stage: +{currentMixedOption.adjustments.stageProgressionIncrease.toFixed(1)}%</div>
-                    )}
-                    {currentMixedOption.adjustments.exitValuationsIncrease > 0 && (
-                      <div className="text-blue-700">Exit: +{currentMixedOption.adjustments.exitValuationsIncrease.toFixed(1)}%</div>
-                    )}
-                    {currentMixedOption.adjustments.lossProbabilitiesDecrease > 0 && (
-                      <div className="text-blue-700">Loss: -{currentMixedOption.adjustments.lossProbabilitiesDecrease.toFixed(1)}%</div>
-                    )}
-                    {currentMixedOption.adjustments.dilutionRatesDecrease > 0 && (
-                      <div className="text-blue-700">Dilution: -{currentMixedOption.adjustments.dilutionRatesDecrease.toFixed(1)}%</div>
-                    )}
+                <div className="mt-3 p-4 bg-white border border-blue-100 rounded-lg text-sm">
+                  <p className="text-blue-800 mb-4 font-medium">{currentMixedOption.description}</p>
+                  <div className="space-y-3">
+                    <h5 className="text-sm font-semibold text-blue-900 mb-2">Parameter Adjustments:</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {currentMixedOption.adjustments.stageProgressionIncrease > 0 && (
+                        <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-green-800">Stage Progression</span>
+                          </div>
+                          <span className="text-sm font-bold text-green-700">+{currentMixedOption.adjustments.stageProgressionIncrease.toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {currentMixedOption.adjustments.exitValuationsIncrease > 0 && (
+                        <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-purple-800">Exit Valuations</span>
+                          </div>
+                          <span className="text-sm font-bold text-purple-700">+{currentMixedOption.adjustments.exitValuationsIncrease.toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {currentMixedOption.adjustments.lossProbabilitiesDecrease > 0 && (
+                        <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-orange-800">Loss Reduction</span>
+                          </div>
+                          <span className="text-sm font-bold text-orange-700">-{currentMixedOption.adjustments.lossProbabilitiesDecrease.toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {currentMixedOption.adjustments.dilutionRatesDecrease > 0 && (
+                        <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-blue-800">Dilution Reduction</span>
+                          </div>
+                          <span className="text-sm font-bold text-blue-700">-{currentMixedOption.adjustments.dilutionRatesDecrease.toFixed(1)}%</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1036,7 +1076,6 @@ const ScenarioDetailView = ({
                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                   >
                     {startup.companyName}
-                    {startup.moic >= 2 && <span className="ml-1 text-orange-500">🚀</span>}
                   </label>
                 </div>
               ))}
@@ -2194,5 +2233,861 @@ function applyAdjustmentsToStageData(baselineData: any, adjustments: any) {
   
   return adjusted;
 }
+
+// Single Parameter Evolution View Component
+const SingleParameterEvolutionView = ({ 
+  analysis, 
+  investments 
+}: { 
+  analysis: SensitivityAnalysis; 
+  investments: any[] 
+}) => {
+  const [selectedParameters, setSelectedParameters] = useState<string[]>(['exitValuations']);
+  const [multiParameterMode, setMultiParameterMode] = useState<boolean>(false);
+  const [isRunningSimulations, setIsRunningSimulations] = useState<boolean>(false);
+    const [simulationProgress, setSimulationProgress] = useState({ 
+    progress: 0, 
+    step: '', 
+    currentParam: '', 
+    currentAdjustment: 0 
+  });
+
+  // Parameter Comparison Section State
+  const [comparisonAdjustment, setComparisonAdjustment] = useState([25]);
+  const [selectedStartup, setSelectedStartup] = useState<string>('');
+  const [showParameterComparison, setShowParameterComparison] = useState(false);
+  const [evolutionData, setEvolutionData] = useState<any[]>([]);
+  const [simulationParams] = useState({
+    numSimulations: 5000,
+    setupFees: 2,
+    managementFees: 2,
+    managementFeeYears: 10,
+    followOnStrategy: {
+      enableEarlyFollowOns: false,
+      earlyFollowOnRate: 0,
+      earlyFollowOnMultiple: 1,
+      enableRecycling: false,
+      recyclingRate: 0,
+      reserveRatio: 0
+    }
+  });
+
+  // Helper function to get parameter display names
+  const getParameterTitle = (param: string): string => {
+    switch (param) {
+      case 'exitValuations': return 'Exit Valuations';
+      case 'stageProgression': return 'Stage Progression';
+      case 'lossProbabilities': return 'Loss Probabilities Reduction';
+      case 'dilutionRates': return 'Dilution Rates Reduction';
+      default: return param;
+    }
+  };
+
+  // Function to run actual portfolio simulations
+  const runParameterEvolutionSimulations = useCallback(async () => {
+    console.log('🚀 Starting parameter evolution simulations...');
+    console.log('Selected parameters:', selectedParameters);
+    console.log('Investments count:', investments?.length);
+    
+    if (!investments || investments.length === 0) {
+      console.error('No investments available for simulation');
+      alert('No investments available for simulation. Please ensure you have portfolio data loaded.');
+      return;
+    }
+
+    const startTime = Date.now();
+    setIsRunningSimulations(true);
+    setSimulationProgress({ progress: 0, step: 'Initializing simulations...', currentParam: '', currentAdjustment: 0 });
+    
+    const data: any[] = [];
+    const totalSimulations = selectedParameters.length * 100; // 100 adjustments per parameter
+    let completedSimulations = 0;
+
+    try {
+      // Add baseline data point (0% adjustment)
+      const baselineDataPoint: any = {
+      adjustment: 0,
+      label: 'Baseline'
+      };
+      
+      selectedParameters.forEach(parameter => {
+        baselineDataPoint[parameter] = analysis.baselineMOIC;
+      });
+      data.push(baselineDataPoint);
+
+      console.log(`Running ${totalSimulations} total simulations for ${selectedParameters.length} parameters`);
+
+      // Run simulations for each parameter
+      for (const parameter of selectedParameters) {
+        console.log(`Starting simulations for ${parameter}`);
+        
+        const paramStartTime = Date.now();
+        const paramTitle = getParameterTitle(parameter);
+        
+        setSimulationProgress({ 
+          progress: (completedSimulations / totalSimulations) * 100, 
+          step: `Running simulations for ${paramTitle}...`,
+          currentParam: paramTitle,
+          currentAdjustment: 0
+        });
+
+        // Run simulations for adjustments from 1% to 100%
+        for (let adjustment = 1; adjustment <= 100; adjustment++) {
+          const elapsed = Date.now() - startTime;
+          const avgTimePerSim = elapsed / Math.max(1, completedSimulations);
+          const remainingTime = avgTimePerSim * (totalSimulations - completedSimulations);
+          const remainingMinutes = Math.max(1, Math.ceil(remainingTime / 60000));
+          
+          setSimulationProgress({ 
+            progress: (completedSimulations / totalSimulations) * 100, 
+            step: `${paramTitle}: ${adjustment}% adjustment (~${remainingMinutes}min remaining)`,
+            currentParam: paramTitle,
+            currentAdjustment: adjustment
+          });
+
+          // Create parameter adjustments
+          const adjustments: ParameterAdjustments = {
+            stageProgressionIncrease: parameter === 'stageProgression' ? adjustment : 0,
+            dilutionRatesDecrease: parameter === 'dilutionRates' ? adjustment : 0,
+            lossProbabilitiesDecrease: parameter === 'lossProbabilities' ? adjustment : 0,
+            exitValuationsIncrease: parameter === 'exitValuations' ? adjustment : 0
+          };
+
+          try {
+            // Apply parameter adjustments to investments
+            const adjustedInvestments = applyParameterAdjustments(investments, adjustments);
+            
+            // Run portfolio simulation
+            const results = runPortfolioSimulation(adjustedInvestments, simulationParams);
+            
+            // Find or create data point for this adjustment level
+            let dataPoint = data.find(d => d.adjustment === adjustment);
+            if (!dataPoint) {
+              dataPoint = {
+                adjustment,
+                label: `${adjustment}%`
+              };
+              data.push(dataPoint);
+            }
+            
+            // Add MOIC for this parameter
+            dataPoint[parameter] = results.avgMOIC;
+            
+            console.log(`${parameter} ${adjustment}%: MOIC = ${results.avgMOIC.toFixed(2)}x`);
+            
+          } catch (simError) {
+            console.error(`Error in simulation for ${parameter} at ${adjustment}%:`, simError);
+            // Use baseline MOIC as fallback
+            let dataPoint = data.find(d => d.adjustment === adjustment);
+            if (!dataPoint) {
+              dataPoint = {
+                adjustment,
+                label: `${adjustment}%`
+              };
+              data.push(dataPoint);
+            }
+            dataPoint[parameter] = analysis.baselineMOIC;
+          }
+          
+          completedSimulations++;
+          
+          // Update UI every few simulations for better responsiveness
+          if (completedSimulations % 3 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 1));
+          }
+        }
+        
+        const paramEndTime = Date.now();
+        console.log(`✅ Completed ${parameter} in ${(paramEndTime - paramStartTime) / 1000}s`);
+      }
+
+      // Sort data by adjustment level
+      data.sort((a, b) => a.adjustment - b.adjustment);
+      setEvolutionData(data);
+      
+      const totalTime = Date.now() - startTime;
+      console.log(`🎉 All simulations completed in ${totalTime / 1000}s`);
+      
+    } catch (error) {
+      console.error('❌ Error running parameter evolution simulations:', error);
+      alert(`Error running simulations: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsRunningSimulations(false);
+      setSimulationProgress({ progress: 100, step: 'Simulations complete!', currentParam: '', currentAdjustment: 0 });
+    }
+  }, [selectedParameters, investments, analysis.baselineMOIC, simulationParams, getParameterTitle]);
+
+  // Manual trigger for simulations (don't auto-run to avoid accidental heavy computation)
+  const handleRunSimulations = () => {
+    if (selectedParameters.length > 0 && investments && investments.length > 0) {
+      runParameterEvolutionSimulations();
+    }
+  };
+
+  // Reset simulations when parameters change
+  useEffect(() => {
+    setEvolutionData([]);
+  }, [selectedParameters]);
+
+  // Add reference lines for target MOICs
+  const targetMOICLines = analysis.targetScenarios.map(scenario => ({
+    moic: scenario.targetMOIC,
+    label: `${scenario.targetMOIC}x Target`,
+    color: scenario.isRealistic ? '#10B981' : '#F59E0B'
+  }));
+
+  const getParameterColor = (param: string): string => {
+    switch (param) {
+      case 'exitValuations': return '#3B82F6'; // Blue
+      case 'stageProgression': return '#10B981'; // Green
+      case 'lossProbabilities': return '#F59E0B'; // Orange
+      case 'dilutionRates': return '#8B5CF6'; // Purple
+      default: return '#6B7280'; // Gray
+    }
+  };
+
+  const allParameters = [
+    { value: 'exitValuations', label: 'Exit Valuations (+%)' },
+    { value: 'stageProgression', label: 'Stage Progression (+%)' },
+    { value: 'lossProbabilities', label: 'Loss Reduction (-%)' },
+    { value: 'dilutionRates', label: 'Dilution Reduction (-%)'  }
+  ];
+
+  const toggleParameter = (parameter: string) => {
+    setSelectedParameters(prev => {
+      if (prev.includes(parameter)) {
+        return prev.filter(p => p !== parameter);
+      } else {
+        return [...prev, parameter];
+      }
+    });
+  };
+
+  // Helper function to get baseline parameters for a startup
+  const getBaselineParameters = (startupName: string) => {
+    const startup = investments.find(inv => inv.companyName === startupName);
+    if (!startup) return null;
+
+    return {
+      stages: [
+        {
+          stage: 'Pre-Seed',
+          exitValuation: {
+            min: startup.exitValuations.preSeed[0],
+            max: startup.exitValuations.preSeed[1]
+          },
+          lossProb: startup.lossProb.preSeed,
+          dilution: 0 // No dilution at pre-seed
+        },
+        {
+          stage: 'Seed',
+          exitValuation: {
+            min: startup.exitValuations.seed[0],
+            max: startup.exitValuations.seed[1]
+          },
+          stageProgression: startup.stageProgression.toSeed || 0,
+          lossProb: startup.lossProb.seed,
+          dilution: startup.dilutionRates.seed || 0
+        },
+        {
+          stage: 'Series A',
+          exitValuation: {
+            min: startup.exitValuations.seriesA[0],
+            max: startup.exitValuations.seriesA[1]
+          },
+          stageProgression: startup.stageProgression.toSeriesA || 0,
+          lossProb: startup.lossProb.seriesA,
+          dilution: startup.dilutionRates.seriesA || 0
+        },
+        {
+          stage: 'Series B',
+          exitValuation: {
+            min: startup.exitValuations.seriesB[0],
+            max: startup.exitValuations.seriesB[1]
+          },
+          stageProgression: startup.stageProgression.toSeriesB || 0,
+          lossProb: startup.lossProb.seriesB,
+          dilution: startup.dilutionRates.seriesB || 0
+        },
+        {
+          stage: 'Series C',
+          exitValuation: {
+            min: startup.exitValuations.seriesC[0],
+            max: startup.exitValuations.seriesC[1]
+          },
+          stageProgression: startup.stageProgression.toSeriesC || 0,
+          lossProb: startup.lossProb.seriesC,
+          dilution: startup.dilutionRates.seriesC || 0
+        },
+        {
+          stage: 'IPO',
+          exitValuation: {
+            min: startup.exitValuations.ipo[0],
+            max: startup.exitValuations.ipo[1]
+          },
+          stageProgression: startup.stageProgression.toIPO || 0,
+          lossProb: startup.lossProb.ipo,
+          dilution: startup.dilutionRates.ipo || 0
+        }
+      ]
+    };
+  };
+
+  // Helper function to apply adjustments to parameters
+  const getAdjustedParameters = (baselineParams: any, adjustmentPercent: number, selectedParams: string[]) => {
+    if (!baselineParams) return null;
+
+    return {
+      stages: baselineParams.stages.map((stage: any) => ({
+        ...stage,
+        exitValuation: selectedParams.includes('exitValuations') 
+          ? {
+              min: stage.exitValuation.min * (1 + adjustmentPercent / 100),
+              max: stage.exitValuation.max * (1 + adjustmentPercent / 100)
+            }
+          : stage.exitValuation,
+        stageProgression: selectedParams.includes('stageProgression') && stage.stageProgression !== undefined
+          ? Math.min(100, stage.stageProgression * (1 + adjustmentPercent / 100))
+          : stage.stageProgression,
+        lossProb: selectedParams.includes('lossProbabilities')
+          ? Math.max(0, stage.lossProb * (1 - adjustmentPercent / 100))
+          : stage.lossProb,
+        dilution: selectedParams.includes('dilutionRates') && stage.dilution !== undefined
+          ? Math.max(0, stage.dilution * (1 - adjustmentPercent / 100))
+          : stage.dilution
+      }))
+    };
+  };
+
+  // Helper function to format parameter values
+  const formatParameterValue = (value: any, type: string) => {
+    if (value === undefined || value === null) return 'N/A';
+    
+    switch (type) {
+      case 'exitValuation':
+        if (typeof value === 'object' && value.min !== undefined && value.max !== undefined) {
+          return `$${value.min.toFixed(1)}M - $${value.max.toFixed(1)}M`;
+        }
+        return `$${value.toFixed(1)}M`;
+      case 'stageProgression':
+      case 'lossProb':
+      case 'dilution':
+        return `${value.toFixed(1)}%`;
+      default:
+        return value.toFixed(1);
+    }
+  };
+
+  // Helper function to get change indicator
+  const getChangeIndicator = (baseline: any, adjusted: any, type: string) => {
+    if (baseline === undefined || adjusted === undefined || baseline === null || adjusted === null) return null;
+    
+    // Handle exit valuation range objects
+    let baselineValue, adjustedValue;
+    if (type === 'exitValuation' && typeof baseline === 'object' && typeof adjusted === 'object') {
+      // Use the average of min and max for comparison
+      baselineValue = (baseline.min + baseline.max) / 2;
+      adjustedValue = (adjusted.min + adjusted.max) / 2;
+    } else {
+      baselineValue = baseline;
+      adjustedValue = adjusted;
+    }
+    
+    const change = adjustedValue - baselineValue;
+    const changePercent = (change / baselineValue) * 100;
+    
+    let color = 'text-gray-500';
+    let icon = '→';
+    
+    if (Math.abs(changePercent) > 0.1) {
+      if (change > 0) {
+        color = type === 'lossProb' ? 'text-red-500' : 'text-green-500';
+        icon = '↗';
+      } else {
+        color = type === 'lossProb' ? 'text-green-500' : 'text-red-500';
+        icon = '↘';
+      }
+    }
+    
+    return (
+      <span className={`text-xs ${color} ml-1`}>
+        {icon} {Math.abs(changePercent) > 0.1 ? `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}%` : ''}
+      </span>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-blue-600" />
+            Parameter Evolution Analysis
+          </CardTitle>
+          <p className="text-sm text-gray-600">
+            Analyze how parameter adjustments impact portfolio MOIC from 1% to 100% improvement
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Mode Toggle */}
+          <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+            <label className="text-sm font-medium text-gray-700">
+              Analysis Mode:
+            </label>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  checked={!multiParameterMode}
+                  onChange={() => {
+                    setMultiParameterMode(false);
+                    if (selectedParameters.length === 0) {
+                      setSelectedParameters(['exitValuations']);
+                    } else if (selectedParameters.length > 1) {
+                      setSelectedParameters([selectedParameters[0]]);
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm">Single Parameter</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  checked={multiParameterMode}
+                  onChange={() => setMultiParameterMode(true)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm">Multi-Parameter Comparison</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Parameter Selection */}
+          {!multiParameterMode ? (
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-gray-700">
+              Parameter to Analyze:
+            </label>
+              <Select 
+                value={selectedParameters[0] || 'exitValuations'} 
+                onValueChange={(value) => setSelectedParameters([value])}
+              >
+              <SelectTrigger className="w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                  {allParameters.map(param => (
+                    <SelectItem key={param.value} value={param.value}>
+                      {param.label}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">
+                  Select Parameters to Compare:
+                </label>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setSelectedParameters(allParameters.map(p => p.value))}
+                    disabled={selectedParameters.length === allParameters.length}
+                  >
+                    Select All
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setSelectedParameters([])}
+                    disabled={selectedParameters.length === 0}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {allParameters.map(param => (
+                  <label key={param.value} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedParameters.includes(param.value)}
+                      onChange={() => toggleParameter(param.value)}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: getParameterColor(param.value) }}
+                      />
+                      <span className="text-sm font-medium">{getParameterTitle(param.value)}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+                             {selectedParameters.length === 0 && (
+                 <p className="text-sm text-red-600">Please select at least one parameter to analyze.</p>
+               )}
+             </div>
+           )}
+
+
+
+          {/* Simulation Controls */}
+          {selectedParameters.length > 0 && (
+            <Card className="border-blue-200 bg-blue-50">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium text-blue-900">Simulation Controls</h4>
+          </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={handleRunSimulations}
+                      disabled={isRunningSimulations || !investments || investments.length === 0}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {isRunningSimulations ? 'Running...' : 'Run Simulations'}
+                    </Button>
+                    {evolutionData.length > 0 && !isRunningSimulations && (
+                      <Button 
+                        variant="outline"
+                        onClick={() => setEvolutionData([])}
+                        className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                      >
+                        Clear Results
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {isRunningSimulations && (
+                  <div className="mt-3 text-xs text-blue-600">
+                    ⚠️ This may take several minutes to complete. Please keep this tab open.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+
+
+          {/* Simulation Progress */}
+          {isRunningSimulations && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-orange-600"></div>
+                    <h4 className="font-medium text-orange-900">Running Simulations</h4>
+                    <span className="text-sm text-orange-700 ml-auto">{simulationProgress.progress.toFixed(0)}%</span>
+                  </div>
+                  
+                  <Progress value={simulationProgress.progress} className="w-full" />
+                  
+                  {simulationProgress.currentParam && (
+                    <div className="text-sm text-orange-700">
+                      {simulationProgress.currentParam} - {simulationProgress.currentAdjustment}% adjustment
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Evolution Chart */}
+          {selectedParameters.length > 0 && !isRunningSimulations && evolutionData.length > 0 && (
+            <div className="space-y-4">
+              {/* Legend */}
+              {multiParameterMode && selectedParameters.length > 1 && (
+                <div className="flex flex-wrap gap-4 p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-medium text-gray-700">Legend:</span>
+                  {selectedParameters.map(param => (
+                    <div key={param} className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: getParameterColor(param) }}
+                      />
+                      <span className="text-sm font-medium">{getParameterTitle(param)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+          <div className="h-96">
+            <SafeChart height={384}>
+              <LineChart data={evolutionData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="adjustment" 
+                  label={{ value: 'Parameter Adjustment (%)', position: 'insideBottom', offset: -5 }}
+                />
+                <YAxis 
+                  label={{ value: 'Portfolio MOIC (x)', angle: -90, position: 'insideLeft' }}
+                  domain={['dataMin - 0.2', 'dataMax + 0.5']}
+                      tickFormatter={(value) => Number(value).toFixed(2)}
+                />
+                <Tooltip 
+                  formatter={(value: any, name: string) => [
+                    `${value.toFixed(2)}x`,
+                        getParameterTitle(name)
+                  ]}
+                  labelFormatter={(label) => `Adjustment: ${label}%`}
+                />
+                    <Legend 
+                      formatter={(value) => getParameterTitle(value)}
+                      wrapperStyle={{ paddingTop: '20px' }}
+                />
+                
+                    {/* Render a line for each selected parameter */}
+                    {selectedParameters.map(parameter => (
+                <Line 
+                        key={parameter}
+                  type="monotone" 
+                        dataKey={parameter}
+                        stroke={getParameterColor(parameter)}
+                  strokeWidth={3}
+                        dot={{ fill: getParameterColor(parameter), strokeWidth: 2, r: 3 }}
+                  activeDot={{ r: 6 }}
+                        name={getParameterTitle(parameter)}
+                />
+                    ))}
+              </LineChart>
+            </SafeChart>
+          </div>
+            </div>
+          )}
+
+          {/* Placeholder when no data yet */}
+          {selectedParameters.length > 0 && !isRunningSimulations && evolutionData.length === 0 && (
+            <Card className="border-gray-200">
+              <CardContent className="p-8 text-center">
+                <div className="text-gray-500">
+                  <TrendingUp className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">Ready to Run Simulations</p>
+                  <p className="text-sm">Simulations will start automatically when you select parameters</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Parameter Comparison Section */}
+          {selectedParameters.length > 0 && !isRunningSimulations && evolutionData.length > 0 && (
+            <Card className="border-purple-200 bg-purple-50">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-purple-600" />
+                    Parameter Comparison Explorer
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowParameterComparison(!showParameterComparison)}
+                    className="border-purple-300 text-purple-700 hover:bg-purple-100"
+                  >
+                    {showParameterComparison ? 'Hide' : 'Show'} Details
+                  </Button>
+                </div>
+                <p className="text-sm text-purple-700">
+                  Explore how parameter adjustments affect individual startups across different funding stages
+                </p>
+              </CardHeader>
+              
+              {showParameterComparison && (
+                <CardContent className="space-y-6">
+                  {/* Controls */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Adjustment Percentage Slider */}
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-gray-700">
+                        Adjustment Percentage: {comparisonAdjustment[0]}%
+                      </label>
+                      <Slider
+                        value={comparisonAdjustment}
+                        onValueChange={setComparisonAdjustment}
+                        max={100}
+                        min={1}
+                        step={1}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-gray-500">
+                        <span>1%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                      </div>
+                    </div>
+
+                    {/* Startup Selector */}
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-gray-700">
+                        Select Startup to Analyze:
+                      </label>
+                      <Select 
+                        value={selectedStartup} 
+                        onValueChange={setSelectedStartup}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose a startup..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {investments.map(inv => (
+                            <SelectItem key={inv.companyName} value={inv.companyName}>
+                              {inv.companyName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Parameter Comparison Table */}
+                  {selectedStartup && (
+                    (() => {
+                      const baselineParams = getBaselineParameters(selectedStartup);
+                      const adjustedParams = getAdjustedParameters(baselineParams, comparisonAdjustment[0], selectedParameters);
+                      
+                      if (!baselineParams || !adjustedParams) return null;
+
+              return (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-gray-900">
+                              Parameter Evolution for {selectedStartup}
+                      </h4>
+                            <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-300">
+                              {comparisonAdjustment[0]}% Adjustment
+                      </Badge>
+                    </div>
+                          
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="font-semibold">Stage</TableHead>
+                                  <TableHead className="font-semibold text-center">Exit Valuation</TableHead>
+                                  <TableHead className="font-semibold text-center">Stage Progression</TableHead>
+                                  <TableHead className="font-semibold text-center">Loss Probability</TableHead>
+                                  <TableHead className="font-semibold text-center">Dilution Rate</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {baselineParams.stages.map((baselineStage: any, index: number) => {
+                                  const adjustedStage = adjustedParams.stages[index];
+                                  
+                                  return (
+                                    <TableRow key={baselineStage.stage}>
+                                      <TableCell className="font-medium">
+                                        {baselineStage.stage}
+                                      </TableCell>
+                                      
+                                      {/* Exit Valuation */}
+                                      <TableCell className="text-center">
+                                        <div className="space-y-1">
+                                          <div className="text-sm text-gray-500">
+                                            {formatParameterValue(baselineStage.exitValuation, 'exitValuation')}
+                      </div>
+                                          <div className="font-medium">
+                                            {formatParameterValue(adjustedStage.exitValuation, 'exitValuation')}
+                                            {getChangeIndicator(baselineStage.exitValuation, adjustedStage.exitValuation, 'exitValuation')}
+                      </div>
+                      </div>
+                                      </TableCell>
+                                      
+                                      {/* Stage Progression */}
+                                      <TableCell className="text-center">
+                                        <div className="space-y-1">
+                                          <div className="text-sm text-gray-500">
+                                            {formatParameterValue(baselineStage.stageProgression, 'stageProgression')}
+                    </div>
+                                          <div className="font-medium">
+                                            {formatParameterValue(adjustedStage.stageProgression, 'stageProgression')}
+                                            {getChangeIndicator(baselineStage.stageProgression, adjustedStage.stageProgression, 'stageProgression')}
+                                          </div>
+                                        </div>
+                                      </TableCell>
+                                      
+                                      {/* Loss Probability */}
+                                      <TableCell className="text-center">
+                                        <div className="space-y-1">
+                                          <div className="text-sm text-gray-500">
+                                            {formatParameterValue(baselineStage.lossProb, 'lossProb')}
+                                          </div>
+                                          <div className="font-medium">
+                                            {formatParameterValue(adjustedStage.lossProb, 'lossProb')}
+                                            {getChangeIndicator(baselineStage.lossProb, adjustedStage.lossProb, 'lossProb')}
+                                          </div>
+                                        </div>
+                                      </TableCell>
+                                      
+                                      {/* Dilution Rate */}
+                                      <TableCell className="text-center">
+                                        <div className="space-y-1">
+                                          <div className="text-sm text-gray-500">
+                                            {formatParameterValue(baselineStage.dilution, 'dilution')}
+                                          </div>
+                                          <div className="font-medium">
+                                            {formatParameterValue(adjustedStage.dilution, 'dilution')}
+                                            {getChangeIndicator(baselineStage.dilution, adjustedStage.dilution, 'dilution')}
+                                          </div>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+              );
+            })}
+                              </TableBody>
+                            </Table>
+          </div>
+
+                          {/* Legend */}
+                          <div className="flex flex-wrap gap-4 p-3 bg-gray-50 rounded-lg text-xs">
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">Gray:</span>
+                              <span>Baseline values</span>
+                </div>
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium">Bold:</span>
+                              <span>Adjusted values</span>
+              </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-green-500">↗</span>
+                              <span>Beneficial increase</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-red-500">↘</span>
+                              <span>Detrimental decrease</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">→</span>
+                              <span>No significant change</span>
+                            </div>
+                          </div>
+
+                          
+                        </div>
+                      );
+                    })()
+                  )}
+
+                  {!selectedStartup && (
+                    <div className="text-center p-8 text-gray-500">
+                      <Settings className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium mb-2">Select a Startup</p>
+                      <p className="text-sm">Choose a startup from the dropdown to see detailed parameter comparisons</p>
+                    </div>
+                  )}
+            </CardContent>
+              )}
+          </Card>
+          )}
+
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
 
 export default SensitivityAnalysisDashboard; 

@@ -163,21 +163,15 @@ const PortfolioManager = ({
 }: PortfolioManagerProps) => {
   const { user } = useAuth();
   const { showSuccess, showError } = useNotifications();
-  const hookData = usePortfolioData();
-  
-  // Use passed props if available, otherwise fall back to hook data
-  const investments = portfolioData || hookData.investments;
-  const customParameterSets = shareCustomSets || hookData.customParameterSets;
-  const {
+  const { 
+    investments: hookInvestments, 
+    customParameterSets,
     loading,
     error,
-    addInvestment,
-    updateInvestment,
-    deleteInvestment,
+    addInvestment: addInvestmentHook,
+    updateInvestment: updateInvestmentHook,
+    deleteInvestment: deleteInvestmentHook,
     importInvestments,
-    addCustomParameterSet,
-    updateCustomParameterSet,
-    deleteCustomParameterSet,
     saveToDatabase,
     loadFromDatabase,
     savePortfolioToCloud,
@@ -186,8 +180,10 @@ const PortfolioManager = ({
     deletePortfolioFromCloud,
     refreshData,
     clearError
-  } = hookData;
+  } = usePortfolioData();
   
+  // Use passed props if available, otherwise fall back to hook data
+  const investments = portfolioData || hookInvestments;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -287,7 +283,7 @@ const PortfolioManager = ({
     if (!newInvestment) return;
     
     try {
-      const localAddInvestmentFn = addInvestmentProp || addInvestment;
+      const localAddInvestmentFn = addInvestmentProp || addInvestmentHook;
       await localAddInvestmentFn({ ...newInvestment, id: Date.now().toString() });
       setShowAddForm(false);
       setNewInvestment(null);
@@ -544,8 +540,8 @@ const PortfolioManager = ({
     : 0;
 
   // Use CRUD functions passed via props if available, otherwise fall back to hook versions
-  const updateInvestmentFn = updateInvestmentProp || updateInvestment;
-  const deleteInvestmentFn = deleteInvestmentProp || deleteInvestment;
+  const updateInvestmentFn = updateInvestmentProp || updateInvestmentHook;
+  const deleteInvestmentFn = deleteInvestmentProp || deleteInvestmentHook;
 
   // After hookData destructuring, define fallback functions
   const savePortfolioToCloudFn = savePortfolioToCloudProp || savePortfolioToCloud;
@@ -975,12 +971,7 @@ const PortfolioManager = ({
           <DialogHeader>
             <DialogTitle>Manage Custom Parameter Sets</DialogTitle>
           </DialogHeader>
-          <CustomParameterSetManager
-            customSets={customParameterSets}
-            onAddSet={addCustomParameterSet}
-            onUpdateSet={updateCustomParameterSet}
-            onDeleteSet={deleteCustomParameterSet}
-          />
+          <CustomParameterSetManager />
         </DialogContent>
       </Dialog>
 

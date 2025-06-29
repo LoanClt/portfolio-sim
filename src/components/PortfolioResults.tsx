@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ChevronLeft, ChevronRight, Rocket, TrendingUp, FileSpreadsheet, Zap, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Rocket, TrendingUp, FileSpreadsheet, Zap, Loader2, Sparkles } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import type { PortfolioResults, PortfolioInvestment, PortfolioSimulationParams } from '@/types/portfolio';
 import type { SensitivityAnalysis } from '@/types/portfolio';
@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import SensitivityAnalysisDashboard from './SensitivityAnalysisDashboard';
+import ForecastDashboard from './ForecastDashboard';
 import { runSensitivityAnalysis, type ExtendedSensitivityAnalysisParams } from '@/utils/sensitivityAnalysis';
 
 interface PortfolioResultsProps {
@@ -30,6 +31,8 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
   const [sensitivityAnalysis, setSensitivityAnalysis] = useState<SensitivityAnalysis | null>(null);
   const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ progress: 0, step: '' });
+
+
   const [selectedSheets, setSelectedSheets] = useState<{[key:string]:boolean}>({
     summary: true,
     fundInputs: true,
@@ -38,8 +41,53 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
     avgOutcomes: true,
     statistics: true
   });
+  const [showSensitivityExportDialog, setShowSensitivityExportDialog] = useState(false);
+  const [sensitivityFileName, setSensitivityFileName] = useState('sensitivity_analysis.xlsx');
+  const [selectedMOICs, setSelectedMOICs] = useState<{[key: string]: boolean}>({});
+  const [selectedScenarios, setSelectedScenarios] = useState<{[key: string]: {[key: string]: boolean}}>({});
 
   const toggleSheet = (key: string) => setSelectedSheets(prev => ({...prev, [key]: !prev[key]}));
+
+  // Initialize selected MOICs when sensitivity analysis changes
+  React.useEffect(() => {
+    if (sensitivityAnalysis) {
+      const initialMOICs: {[key: string]: boolean} = {};
+      const initialScenarios: {[key: string]: {[key: string]: boolean}} = {};
+      
+      sensitivityAnalysis.targetScenarios.forEach(scenario => {
+        const moicKey = `${scenario.targetMOIC}x`;
+        initialMOICs[moicKey] = true;
+        
+        initialScenarios[moicKey] = {
+          'baseline': true,
+          'mixed': true,
+          ...scenario.singleParameterOptions.reduce((acc, option, idx) => {
+            acc[`single_${idx}_${option.parameterType}`] = true;
+            return acc;
+          }, {} as {[key: string]: boolean})
+        };
+      });
+      
+      setSelectedMOICs(initialMOICs);
+      setSelectedScenarios(initialScenarios);
+    }
+  }, [sensitivityAnalysis]);
+
+  // Toggle MOIC selection
+  const toggleMOIC = (moicKey: string) => {
+    setSelectedMOICs(prev => ({...prev, [moicKey]: !prev[moicKey]}));
+  };
+
+  // Toggle scenario selection
+  const toggleScenario = (moicKey: string, scenarioKey: string) => {
+    setSelectedScenarios(prev => ({
+      ...prev,
+      [moicKey]: {
+        ...prev[moicKey],
+        [scenarioKey]: !prev[moicKey]?.[scenarioKey]
+      }
+    }));
+  };
 
   // Run sensitivity analysis
   const runSensitivityAnalysisHandler = async () => {
@@ -74,6 +122,531 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
     } finally {
       setIsRunningAnalysis(false);
       setAnalysisProgress({ progress: 0, step: '' });
+    }
+  };
+
+  // Helper function for sensitivity analysis parameter display names
+  const getParameterDisplayName = (paramType: string): string => {
+    switch (paramType) {
+      case 'stageProgression': return 'Stage Progression';
+      case 'dilutionRates': return 'Dilution Rates';
+      case 'lossProbabilities': return 'Loss Probabilities';
+      case 'exitValuations': return 'Exit Valuations';
+      default: return paramType;
+    }
+  };
+
+  // Helper function to create single parameter adjustments
+  const createSingleParameterAdjustments = (parameterType: string, adjustmentPercent: number): any => {
+    const adjustments = {
+      stageProgressionIncrease: 0,
+      dilutionRatesDecrease: 0,
+      lossProbabilitiesDecrease: 0,
+      exitValuationsIncrease: 0
+    };
+    
+    switch (parameterType) {
+      case 'stageProgression':
+        adjustments.stageProgressionIncrease = adjustmentPercent;
+        break;
+      case 'dilutionRates':
+        adjustments.dilutionRatesDecrease = adjustmentPercent;
+        break;
+      case 'lossProbabilities':
+        adjustments.lossProbabilitiesDecrease = adjustmentPercent;
+        break;
+      case 'exitValuations':
+        adjustments.exitValuationsIncrease = adjustmentPercent;
+        break;
+    }
+    
+    return adjustments;
+  };
+
+  // Export sensitivity analysis to Excel - Scenario-based Sheet Structure
+  const exportSensitivityToExcel = () => {
+    if (!sensitivityAnalysis) {
+      console.error('No sensitivity analysis data available');
+      alert('No sensitivity analysis data available. Please run a sensitivity analysis first.');
+      return;
+    }
+
+    console.log('Starting sensitivity export with data:', sensitivityAnalysis);
+    
+    // Validate that at least one MOIC is selected
+    const hasSelectedMOICs = Object.values(selectedMOICs).some(Boolean);
+    if (!hasSelectedMOICs) {
+      alert('Please select at least one MOIC target to export.');
+      return;
+    }
+    
+    console.log('Selected MOICs:', selectedMOICs);
+    console.log('Selected scenarios:', selectedScenarios);
+
+    const workbook = XLSX.utils.book_new();
+
+    // Helper functions for styling
+    const getParameterChangeColor = (change: number, isReduction: boolean = false) => {
+      const absChange = Math.abs(change);
+      if (absChange >= 50) return isReduction ? "4CAF50" : "2196F3";
+      if (absChange >= 25) return isReduction ? "8BC34A" : "64B5F6";
+      if (absChange >= 10) return isReduction ? "C8E6C9" : "BBDEFB";
+      return "F5F5F5";
+    };
+
+    // Enhanced table formatting function
+    const applyTableFormatting = (sheet: any, data: any[][], headerRowIdx: number, headerFillColor: string) => {
+      if (!sheet['!ref']) return;
+      
+      const range = XLSX.utils.decode_range(sheet['!ref']);
+      
+      // Set column widths
+      const colWidths = [];
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        let maxWidth = 10;
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          const cell = sheet[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (cell && cell.v) {
+            const cellLength = String(cell.v).length;
+            maxWidth = Math.max(maxWidth, Math.min(cellLength + 2, 30));
+          }
+        }
+        colWidths.push({ width: maxWidth });
+      }
+      sheet['!cols'] = colWidths;
+
+      // Apply header formatting
+      if (headerRowIdx >= 0 && headerRowIdx < data.length && data[headerRowIdx]) {
+        for (let col = 0; col < data[headerRowIdx].length; col++) {
+          const cellRef = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
+          if (sheet[cellRef]) {
+            sheet[cellRef].s = {
+              font: { bold: true, color: { rgb: "FFFFFF" } },
+              fill: { fgColor: { rgb: headerFillColor || "2E7D32" } },
+              alignment: { horizontal: "center", vertical: "center" },
+              border: {
+                top: { style: "thin", color: { rgb: "000000" } },
+                bottom: { style: "thin", color: { rgb: "000000" } },
+                left: { style: "thin", color: { rgb: "000000" } },
+                right: { style: "thin", color: { rgb: "000000" } }
+              }
+            };
+          }
+        }
+      }
+
+      // Apply alternating row colors
+      for (let row = headerRowIdx + 1; row < data.length; row++) {
+        if (!data[row]) continue;
+        const fillColor = row % 2 === 0 ? "FFFFFF" : "F8F9FA";
+        for (let col = 0; col < data[row].length; col++) {
+          const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+          if (sheet[cellRef]) {
+            sheet[cellRef].s = {
+              fill: { fgColor: { rgb: fillColor } },
+              alignment: { horizontal: "center", vertical: "center" },
+              border: {
+                top: { style: "thin", color: { rgb: "E0E0E0" } },
+                bottom: { style: "thin", color: { rgb: "E0E0E0" } },
+                left: { style: "thin", color: { rgb: "E0E0E0" } },
+                right: { style: "thin", color: { rgb: "E0E0E0" } }
+              }
+            };
+          }
+        }
+      }
+    };
+
+    // Helper function to get baseline parameters for a startup
+    const getStartupBaselineParameters = (startupName: string) => {
+      const startup = investments.find(inv => inv.companyName === startupName);
+      if (!startup) return null;
+
+      return {
+        stages: [
+          {
+            stage: 'Pre-Seed',
+            exitValuation: { min: startup.exitValuations.preSeed[0], max: startup.exitValuations.preSeed[1] },
+            stageProgression: 0,
+            lossProb: startup.lossProb.preSeed,
+            dilution: 0
+          },
+          {
+            stage: 'Seed',
+            exitValuation: { min: startup.exitValuations.seed[0], max: startup.exitValuations.seed[1] },
+            stageProgression: startup.stageProgression.toSeed || 0,
+            lossProb: startup.lossProb.seed,
+            dilution: startup.dilutionRates.seed || 0
+          },
+          {
+            stage: 'Series A',
+            exitValuation: { min: startup.exitValuations.seriesA[0], max: startup.exitValuations.seriesA[1] },
+            stageProgression: startup.stageProgression.toSeriesA || 0,
+            lossProb: startup.lossProb.seriesA,
+            dilution: startup.dilutionRates.seriesA || 0
+          },
+          {
+            stage: 'Series B',
+            exitValuation: { min: startup.exitValuations.seriesB[0], max: startup.exitValuations.seriesB[1] },
+            stageProgression: startup.stageProgression.toSeriesB || 0,
+            lossProb: startup.lossProb.seriesB,
+            dilution: startup.dilutionRates.seriesB || 0
+          },
+          {
+            stage: 'Series C',
+            exitValuation: { min: startup.exitValuations.seriesC[0], max: startup.exitValuations.seriesC[1] },
+            stageProgression: startup.stageProgression.toSeriesC || 0,
+            lossProb: startup.lossProb.seriesC,
+            dilution: startup.dilutionRates.seriesC || 0
+          },
+          {
+            stage: 'IPO',
+            exitValuation: { min: startup.exitValuations.ipo[0], max: startup.exitValuations.ipo[1] },
+            stageProgression: startup.stageProgression.toIPO || 0,
+            lossProb: startup.lossProb.ipo,
+            dilution: startup.dilutionRates.ipo || 0
+          }
+        ]
+      };
+    };
+
+    // Helper function to apply adjustments to parameters
+    const applyParameterAdjustments = (baselineParams: any, adjustments: any) => {
+      if (!baselineParams) return null;
+
+      return {
+        stages: baselineParams.stages.map((stage: any) => ({
+          ...stage,
+          exitValuation: {
+            min: stage.exitValuation.min * (1 + (adjustments.exitValuationsIncrease || 0) / 100),
+            max: stage.exitValuation.max * (1 + (adjustments.exitValuationsIncrease || 0) / 100)
+          },
+          stageProgression: stage.stageProgression ? 
+            Math.min(100, stage.stageProgression * (1 + (adjustments.stageProgressionIncrease || 0) / 100)) : 
+            stage.stageProgression,
+          lossProb: Math.max(0, stage.lossProb * (1 - (adjustments.lossProbabilitiesDecrease || 0) / 100)),
+          dilution: stage.dilution ? 
+            Math.max(0, stage.dilution * (1 - (adjustments.dilutionRatesDecrease || 0) / 100)) : 
+            stage.dilution
+        }))
+      };
+    };
+
+    // Helper function to create parameter comparison sheet
+    const createParameterComparisonSheet = (sheetName: string, adjustments: any, scenarios: any[] = []) => {
+      try {
+        const sheetData: any[][] = [
+          [sheetName],
+          [],
+          ["Scenario Details:"]
+        ];
+
+        // Add adjustment details
+        if (adjustments) {
+          if (adjustments.exitValuationsIncrease > 0) {
+            sheetData.push(["Exit Valuations:", `+${adjustments.exitValuationsIncrease.toFixed(1)}%`]);
+          }
+          if (adjustments.stageProgressionIncrease > 0) {
+            sheetData.push(["Stage Progression:", `+${adjustments.stageProgressionIncrease.toFixed(1)}%`]);
+          }
+          if (adjustments.lossProbabilitiesDecrease > 0) {
+            sheetData.push(["Loss Probabilities:", `-${adjustments.lossProbabilitiesDecrease.toFixed(1)}%`]);
+          }
+          if (adjustments.dilutionRatesDecrease > 0) {
+            sheetData.push(["Dilution Rates:", `-${adjustments.dilutionRatesDecrease.toFixed(1)}%`]);
+          }
+        }
+
+        // Add spacing
+        sheetData.push([]);
+        sheetData.push([]);
+
+        // Create simplified header
+        const headerRow = [
+          "Company", "Field", "Region", "Entry Stage", "Check Size ($M)",
+          "Pre-Seed Exit Val Baseline", "Pre-Seed Exit Val Adjusted", "Pre-Seed Change %",
+          "Seed Exit Val Baseline", "Seed Exit Val Adjusted", "Seed Change %",
+          "Seed Stage Prog Baseline", "Seed Stage Prog Adjusted", "Seed Stage Prog Change %",
+          "Seed Loss Prob Baseline", "Seed Loss Prob Adjusted", "Seed Loss Prob Change %"
+        ];
+
+        sheetData.push(headerRow);
+
+        // Determine which parameters are varying for color coding
+        const varyingParameters = {
+          exitValuations: adjustments.exitValuationsIncrease > 0,
+          stageProgression: adjustments.stageProgressionIncrease > 0,
+          lossProbabilities: adjustments.lossProbabilitiesDecrease > 0,
+          dilutionRates: adjustments.dilutionRatesDecrease > 0
+        };
+
+        // Define parameter-specific colors
+        const parameterColors = {
+          exitValuations: "E3F2FD", // Light Blue
+          stageProgression: "E8F5E8", // Light Green  
+          lossProbabilities: "FFF3E0", // Light Orange
+          dilutionRates: "F3E5F5", // Light Purple
+          default: "F8F9FA" // Default light gray
+        };
+
+        // Add data for each startup
+        investments.forEach(startup => {
+          const baselineParams = getStartupBaselineParameters(startup.companyName);
+          if (!baselineParams) return;
+
+          const adjustedParams = applyParameterAdjustments(baselineParams, adjustments);
+          if (!adjustedParams) return;
+
+          const row: any[] = [
+            startup.companyName || '',
+            startup.field || 'N/A',
+            startup.region || 'N/A', 
+            startup.entryStage || '',
+            startup.checkSize || 0
+          ];
+
+          // Pre-Seed Exit Valuation
+          const preSeedBaseline = baselineParams.stages[0];
+          const preSeedAdjusted = adjustedParams.stages[0];
+          const preSeedBaselineVal = `${preSeedBaseline.exitValuation.min.toFixed(1)}-${preSeedBaseline.exitValuation.max.toFixed(1)}`;
+          const preSeedAdjustedVal = `${preSeedAdjusted.exitValuation.min.toFixed(1)}-${preSeedAdjusted.exitValuation.max.toFixed(1)}`;
+          const preSeedChange = ((preSeedAdjusted.exitValuation.min + preSeedAdjusted.exitValuation.max) / 2 - 
+                                (preSeedBaseline.exitValuation.min + preSeedBaseline.exitValuation.max) / 2) / 
+                               ((preSeedBaseline.exitValuation.min + preSeedBaseline.exitValuation.max) / 2) * 100;
+          
+          row.push(preSeedBaselineVal, preSeedAdjustedVal, `${preSeedChange > 0 ? '+' : ''}${preSeedChange.toFixed(1)}%`);
+
+          // Seed Exit Valuation
+          const seedBaseline = baselineParams.stages[1];
+          const seedAdjusted = adjustedParams.stages[1];
+          const seedBaselineVal = `${seedBaseline.exitValuation.min.toFixed(1)}-${seedBaseline.exitValuation.max.toFixed(1)}`;
+          const seedAdjustedVal = `${seedAdjusted.exitValuation.min.toFixed(1)}-${seedAdjusted.exitValuation.max.toFixed(1)}`;
+          const seedExitChange = ((seedAdjusted.exitValuation.min + seedAdjusted.exitValuation.max) / 2 - 
+                                  (seedBaseline.exitValuation.min + seedBaseline.exitValuation.max) / 2) / 
+                                 ((seedBaseline.exitValuation.min + seedBaseline.exitValuation.max) / 2) * 100;
+          
+          row.push(seedBaselineVal, seedAdjustedVal, `${seedExitChange > 0 ? '+' : ''}${seedExitChange.toFixed(1)}%`);
+
+          // Seed Stage Progression
+          const seedStageProgChange = (seedAdjusted.stageProgression - seedBaseline.stageProgression) / seedBaseline.stageProgression * 100;
+          row.push(
+            `${seedBaseline.stageProgression.toFixed(1)}%`,
+            `${seedAdjusted.stageProgression.toFixed(1)}%`,
+            `${seedStageProgChange > 0 ? '+' : ''}${seedStageProgChange.toFixed(1)}%`
+          );
+
+          // Seed Loss Probability
+          const seedLossChange = (seedAdjusted.lossProb - seedBaseline.lossProb) / seedBaseline.lossProb * 100;
+          row.push(
+            `${seedBaseline.lossProb.toFixed(1)}%`,
+            `${seedAdjusted.lossProb.toFixed(1)}%`,
+            `${seedLossChange > 0 ? '+' : ''}${seedLossChange.toFixed(1)}%`
+          );
+
+          sheetData.push(row);
+        });
+
+        const sheet = XLSX.utils.aoa_to_sheet(sheetData);
+        
+        // Style the main header
+        if (sheet['A1']) {
+          sheet['A1'].s = { 
+            font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, 
+            fill: { fgColor: { rgb: "2E7D32" } }, 
+            alignment: { horizontal: "center" }
+          };
+        }
+
+        // Find and format the data table header
+        const headerRowIndex = sheetData.findIndex(row => row[0] === "Company");
+        if (headerRowIndex >= 0) {
+          applyTableFormatting(sheet, sheetData, headerRowIndex, "2E7D32");
+
+          // Apply parameter-specific color coding to adjusted columns
+          for (let row = headerRowIndex + 1; row < sheetData.length; row++) {
+            for (let col = 0; col < sheetData[row].length; col++) {
+              const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+              const headerCell = sheetData[headerRowIndex][col];
+              
+              // Apply parameter-specific colors to "Adjusted" columns
+              if (headerCell && headerCell.includes('Adjusted')) {
+                let parameterColor = parameterColors.default;
+                
+                if (headerCell.includes('Exit Val') && varyingParameters.exitValuations) {
+                  parameterColor = parameterColors.exitValuations;
+                } else if (headerCell.includes('Stage Prog') && varyingParameters.stageProgression) {
+                  parameterColor = parameterColors.stageProgression;
+                } else if (headerCell.includes('Loss Prob') && varyingParameters.lossProbabilities) {
+                  parameterColor = parameterColors.lossProbabilities;
+                }
+                
+                if (sheet[cellRef]) {
+                  sheet[cellRef].s = {
+                    ...sheet[cellRef].s,
+                    fill: { fgColor: { rgb: parameterColor } },
+                    font: { bold: varyingParameters.exitValuations || varyingParameters.stageProgression || varyingParameters.lossProbabilities }
+                  };
+                }
+              }
+              
+              // Apply change percentage color coding (existing logic)
+              const cellValue = sheetData[row][col];
+              if (cellValue && typeof cellValue === 'string' && cellValue.includes('%')) {
+                const changeValue = parseFloat(cellValue.replace(/[+%]/g, ''));
+                if (!isNaN(changeValue) && Math.abs(changeValue) > 0.1) {
+                  // Determine if this is a reduction parameter
+                  const isReduction = headerCell && headerCell.includes('Loss Prob');
+                  const colorCode = getParameterChangeColor(changeValue, isReduction);
+                  
+                  if (sheet[cellRef]) {
+                    sheet[cellRef].s = {
+                      ...sheet[cellRef].s,
+                      fill: { fgColor: { rgb: colorCode } },
+                      font: { bold: true }
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        return sheet;
+      } catch (error) {
+        console.error('Error creating parameter comparison sheet:', error);
+        return null;
+      }
+    };
+
+    // 1. Summary Sheet
+    const summaryData = [
+      ["PARAMETER COMPARISON ANALYSIS"],
+      ["Generated on:", new Date().toLocaleString()],
+      [],
+      ["BASELINE PERFORMANCE"],
+      ["Baseline MOIC:", `${sensitivityAnalysis.baselineMOIC.toFixed(2)}x`],
+      ["Success Rate:", `${sensitivityAnalysis.baselineResults.successRate.toFixed(1)}%`],
+      ["Average Distributed:", `$${sensitivityAnalysis.baselineResults.avgDistributed.toFixed(1)}MM`],
+      [],
+      ["SELECTED SCENARIOS"],
+      ["MOIC Target", "Scenario Type", "Required Adjustments", "Achievability"]
+    ];
+
+    // Add selected scenarios data
+    sensitivityAnalysis.targetScenarios.forEach(scenario => {
+      const moicKey = `${scenario.targetMOIC}x`;
+      if (selectedMOICs[moicKey]) {
+        const adjustments = scenario.requiredAdjustments;
+        const adjustmentSummary = [
+          adjustments.exitValuationsIncrease > 0 ? `Exit Val: +${adjustments.exitValuationsIncrease.toFixed(1)}%` : null,
+          adjustments.stageProgressionIncrease > 0 ? `Stage Prog: +${adjustments.stageProgressionIncrease.toFixed(1)}%` : null,
+          adjustments.lossProbabilitiesDecrease > 0 ? `Loss Prob: -${adjustments.lossProbabilitiesDecrease.toFixed(1)}%` : null,
+          adjustments.dilutionRatesDecrease > 0 ? `Dilution: -${adjustments.dilutionRatesDecrease.toFixed(1)}%` : null
+        ].filter(Boolean).join(', ');
+        
+        summaryData.push([
+          `${scenario.targetMOIC}x`,
+          "Mixed Parameter",
+          adjustmentSummary,
+          `${scenario.achievabilityScore.toFixed(1)}%`
+        ]);
+      }
+    });
+
+    try {
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      if (summarySheet['A1']) {
+        summarySheet['A1'].s = { 
+          font: { bold: true, sz: 18, color: { rgb: "FFFFFF" } }, 
+          fill: { fgColor: { rgb: "1976D2" } }, 
+          alignment: { horizontal: "center" }
+        };
+      }
+      
+      applyTableFormatting(summarySheet, summaryData, 9, "1976D2");
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+      console.log('Summary sheet created successfully');
+    } catch (error) {
+      console.error('Error creating summary sheet:', error);
+    }
+
+    // 2. Create sheets for each selected scenario
+    sensitivityAnalysis.targetScenarios.forEach(scenario => {
+      const moicKey = `${scenario.targetMOIC}x`;
+      if (!selectedMOICs[moicKey]) return;
+
+      try {
+        // Baseline scenario
+        if (selectedScenarios[moicKey]?.['baseline']) {
+          const baselineAdjustments = { exitValuationsIncrease: 0, stageProgressionIncrease: 0, lossProbabilitiesDecrease: 0, dilutionRatesDecrease: 0 };
+          const sheetName = `${scenario.targetMOIC}x Baseline`;
+          const sheet = createParameterComparisonSheet(sheetName, baselineAdjustments);
+          if (sheet) {
+            XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+            console.log(`Created sheet: ${sheetName}`);
+          }
+        }
+
+        // Single parameter scenarios
+        scenario.singleParameterOptions.forEach((option, idx) => {
+          const scenarioKey = `single_${idx}_${option.parameterType}`;
+          if (selectedScenarios[moicKey]?.[scenarioKey]) {
+            const adjustments = createSingleParameterAdjustments(option.parameterType, option.adjustmentPercent);
+            const paramName = getParameterDisplayName(option.parameterType);
+            const sheetName = `${scenario.targetMOIC}x ${paramName}`;
+            const sheet = createParameterComparisonSheet(sheetName, adjustments);
+            if (sheet) {
+              XLSX.utils.book_append_sheet(workbook, sheet, sheetName.substring(0, 31));
+              console.log(`Created sheet: ${sheetName}`);
+            }
+          }
+        });
+
+        // Mixed parameter scenarios
+        if (selectedScenarios[moicKey]?.['mixed']) {
+          // Use all available mixed parameter options instead of fallback
+          const mixedOptions = scenario.mixedParameterOptions || [];
+          
+          if (mixedOptions.length > 0) {
+            // Create a sheet for each mixed parameter option
+            mixedOptions.forEach((option, optionIndex) => {
+              const sheetName = `${scenario.targetMOIC}x ${option.name}`;
+              const sheet = createParameterComparisonSheet(sheetName, option.adjustments, [option]);
+              if (sheet) {
+                XLSX.utils.book_append_sheet(workbook, sheet, sheetName.substring(0, 31));
+                console.log(`Created sheet: ${sheetName}`);
+              }
+            });
+          } else {
+            // Fallback to single mixed sheet if no mixedParameterOptions
+            const sheetName = `${scenario.targetMOIC}x Mixed Param`;
+            const sheet = createParameterComparisonSheet(sheetName, scenario.requiredAdjustments, [{
+              name: "Mixed Optimization",
+              description: "Balanced optimization across all parameters",
+              adjustments: scenario.requiredAdjustments,
+              results: scenario.adjustedResults,
+              approachType: 'balanced' as const,
+              totalAdjustment: 0
+            }]);
+            if (sheet) {
+              XLSX.utils.book_append_sheet(workbook, sheet, sheetName.substring(0, 31));
+              console.log(`Created sheet: ${sheetName}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Error creating sheets for ${moicKey}:`, error);
+      }
+    });
+
+    // Save the file
+    try {
+      XLSX.writeFile(workbook, sensitivityFileName || 'parameter_comparison_analysis.xlsx');
+      console.log('Parameter comparison analysis exported successfully');
+      setShowSensitivityExportDialog(false);
+    } catch (error) {
+      console.error('Error exporting parameter comparison analysis:', error);
+      alert('Error exporting file. Please try again.');
     }
   };
 
@@ -707,23 +1280,83 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
   return (
     <div className="space-y-6">
       {/* Action Buttons */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-start items-center">
         <div className="flex gap-2">
           {params && (
             <div className="space-y-2">
-              <Button 
-                onClick={runSensitivityAnalysisHandler}
-                disabled={isRunningAnalysis}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white gap-2"
-                type="button"
-              >
-                {isRunningAnalysis ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Zap className="w-4 h-4" />
-                )}
-                {isRunningAnalysis ? 'Running Analysis...' : 'Run Sensitivity Analysis'}
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={runSensitivityAnalysisHandler}
+                  disabled={isRunningAnalysis}
+                  className={`
+                    relative overflow-hidden
+                    bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 
+                    hover:from-blue-700 hover:via-purple-700 hover:to-pink-700
+                    text-white gap-2 px-6 py-3
+                    transition-all duration-300 ease-in-out
+                    transform hover:scale-105 hover:shadow-2xl
+                    shadow-lg shadow-blue-500/25
+                    before:absolute before:inset-0 
+                    before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent
+                    before:translate-x-[-100%] hover:before:translate-x-[100%]
+                    before:transition-transform before:duration-700
+                    after:absolute after:inset-0
+                    after:bg-gradient-to-r after:from-blue-600 after:via-purple-600 after:to-pink-600
+                    after:opacity-0 hover:after:opacity-100
+                    after:animate-pulse after:transition-opacity after:duration-500
+                    ${isRunningAnalysis ? 'animate-pulse shadow-blue-500/50' : 'animate-glow'}
+                    disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+                    disabled:shadow-none disabled:hover:scale-100
+                  `}
+                  style={{
+                    boxShadow: isRunningAnalysis 
+                      ? '0 0 30px rgba(59, 130, 246, 0.6), 0 0 60px rgba(147, 51, 234, 0.4)' 
+                      : '0 0 20px rgba(59, 130, 246, 0.3), 0 0 40px rgba(147, 51, 234, 0.2)',
+                    animation: isRunningAnalysis 
+                      ? 'glow-pulse 2s ease-in-out infinite'
+                      : 'glow-wave 3s ease-in-out infinite'
+                  }}
+                  type="button"
+                >
+                  <div className="relative z-10 flex items-center gap-2">
+                    {isRunningAnalysis ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Zap className="w-5 h-5 animate-bounce" />
+                    )}
+                    <span className="font-semibold">
+                      {isRunningAnalysis ? 'Running Analysis...' : 'Run Sensitivity Analysis'}
+                    </span>
+                  </div>
+                  
+                  {/* Particules d'énergie */}
+                  {!isRunningAnalysis && (
+                    <>
+                      <div className="absolute top-1 left-1/4 w-1 h-1 bg-white rounded-full opacity-70 animate-ping" style={{ animationDelay: '0s' }} />
+                      <div className="absolute top-3 right-1/4 w-0.5 h-0.5 bg-white rounded-full opacity-60 animate-ping" style={{ animationDelay: '0.5s' }} />
+                      <div className="absolute bottom-2 left-1/3 w-0.5 h-0.5 bg-white rounded-full opacity-50 animate-ping" style={{ animationDelay: '1s' }} />
+                      <div className="absolute bottom-1 right-1/3 w-1 h-1 bg-white rounded-full opacity-40 animate-ping" style={{ animationDelay: '1.5s' }} />
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  onClick={()=>setShowExportDialog(true)}
+                  className="bg-black hover:bg-gray-800 text-white gap-2"
+                  type="button"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Export to Excel
+                </Button>
+                <Button 
+                  onClick={()=>setShowSensitivityExportDialog(true)}
+                  disabled={!sensitivityAnalysis}
+                  className="bg-green-600 hover:bg-green-700 text-white gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  type="button"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Export Sensitivity Analysis
+                </Button>
+              </div>
               {isRunningAnalysis && (
                 <div className="w-60 space-y-1">
                   <div className="flex justify-between text-xs text-gray-600">
@@ -736,19 +1369,12 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
             </div>
           )}
         </div>
-        <Button 
-          onClick={()=>setShowExportDialog(true)}
-          className="bg-black hover:bg-gray-800 text-white gap-2"
-          type="button"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          Export to Excel
-        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="base-results">Base Results</TabsTrigger>
+          <TabsTrigger value="forecast-analysis">Portfolio Forecast</TabsTrigger>
           <TabsTrigger value="sensitivity-analysis" disabled={!sensitivityAnalysis}>
             Sensitivity Analysis
           </TabsTrigger>
@@ -1044,23 +1670,55 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
                 <Button 
                   onClick={runSensitivityAnalysisHandler}
                   disabled={isRunningAnalysis || !params}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 relative overflow-hidden"
+                  type="button"
                 >
                   {isRunningAnalysis ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Running Analysis...
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {Math.round(analysisProgress.progress || 0)}%
                     </>
                   ) : (
                     <>
-                      <Zap className="w-4 h-4 mr-2" />
-                      Run Analysis
+                      <Zap className="w-4 h-4" />
+                      Run Sensitivity Analysis
+                    </>
+                  )}
+                  
+                  {/* Particules d'énergie */}
+                  {!isRunningAnalysis && (
+                    <>
+                      <div className="absolute top-1 left-1/4 w-1 h-1 bg-white rounded-full opacity-70 animate-ping" style={{ animationDelay: '0s' }} />
+                      <div className="absolute top-3 right-1/4 w-0.5 h-0.5 bg-white rounded-full opacity-60 animate-ping" style={{ animationDelay: '0.5s' }} />
+                      <div className="absolute bottom-2 left-1/3 w-0.5 h-0.5 bg-white rounded-full opacity-50 animate-ping" style={{ animationDelay: '1s' }} />
+                      <div className="absolute bottom-1 right-1/3 w-1 h-1 bg-white rounded-full opacity-40 animate-ping" style={{ animationDelay: '1.5s' }} />
                     </>
                   )}
                 </Button>
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="forecast-analysis" className="space-y-6">
+          <ForecastDashboard
+            portfolioData={investments}
+            simulationParams={params || {
+              numSimulations: 5000,
+              setupFees: 2,
+              managementFees: 2,
+              managementFeeYears: 10,
+              followOnStrategy: {
+                enableEarlyFollowOns: false,
+                earlyFollowOnRate: 20,
+                earlyFollowOnMultiple: 1.0,
+                enableRecycling: false,
+                recyclingRate: 0,
+                reserveRatio: 30
+              }
+            }}
+            onClose={() => {}}
+          />
         </TabsContent>
       </Tabs>
 
@@ -1096,6 +1754,193 @@ const PortfolioResults = ({ results, investments, params }: PortfolioResultsProp
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Export Sensitivity Analysis Dialog */}
+      <Dialog open={showSensitivityExportDialog} onOpenChange={setShowSensitivityExportDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" />
+              Export Sensitivity Analysis to Excel
+            </DialogTitle>
+            <DialogDescription>
+              Select which MOIC targets and scenarios to include in your detailed Excel export. All underlying simulation data will be included.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* File Name */}
+            <div className="space-y-2">
+              <Label htmlFor="sensitivity-filename">File Name</Label>
+              <Input
+                id="sensitivity-filename"
+                value={sensitivityFileName}
+                onChange={(e) => setSensitivityFileName(e.target.value)}
+                placeholder="sensitivity_analysis.xlsx"
+              />
+            </div>
+
+            {/* MOIC Targets and Scenarios Selection */}
+            {sensitivityAnalysis && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Select MOIC Targets and Scenarios</h3>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const allMOICs: {[key: string]: boolean} = {};
+                        sensitivityAnalysis.targetScenarios.forEach(scenario => {
+                          const moicKey = `${scenario.targetMOIC}x`;
+                          allMOICs[moicKey] = true;
+                        });
+                        setSelectedMOICs(allMOICs);
+                      }}
+                      disabled={Object.keys(selectedMOICs).length === sensitivityAnalysis.targetScenarios.length && Object.values(selectedMOICs).every(Boolean)}
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedMOICs({})}
+                      disabled={Object.values(selectedMOICs).every(v => !v)}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                </div>
+                
+                {sensitivityAnalysis.targetScenarios.map((scenario) => {
+                  const moicKey = `${scenario.targetMOIC}x`;
+                  const isSelectedMOIC = selectedMOICs[moicKey];
+                  
+                  return (
+                    <div key={moicKey} className="border rounded-lg p-4 space-y-3">
+                      {/* MOIC Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <Checkbox
+                            id={`moic-${moicKey}`}
+                            checked={isSelectedMOIC}
+                            onCheckedChange={() => toggleMOIC(moicKey)}
+                          />
+                          <Label htmlFor={`moic-${moicKey}`} className="text-lg font-semibold">
+                            {scenario.targetMOIC}x MOIC Target
+                          </Label>
+                          <Badge className={scenario.isRealistic ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}>
+                            {scenario.isRealistic ? "Realistic" : "Challenging"}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          Achievability: {scenario.achievabilityScore.toFixed(1)}%
+                        </div>
+                      </div>
+
+                      {/* Scenarios for this MOIC */}
+                      {isSelectedMOIC && (
+                        <div className="ml-6 space-y-2">
+                          <h4 className="font-medium text-gray-700">Scenarios to include:</h4>
+                          
+                          {/* Baseline */}
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`${moicKey}-baseline`}
+                              checked={selectedScenarios[moicKey]?.['baseline'] || false}
+                              onCheckedChange={() => toggleScenario(moicKey, 'baseline')}
+                            />
+                            <Label htmlFor={`${moicKey}-baseline`} className="text-sm">
+                              Baseline (Current Performance)
+                            </Label>
+                          </div>
+
+                          {/* Single Parameter Options */}
+                          {scenario.singleParameterOptions.map((option, idx) => {
+                            const scenarioKey = `single_${idx}_${option.parameterType}`;
+                            return (
+                              <div key={scenarioKey} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`${moicKey}-${scenarioKey}`}
+                                  checked={selectedScenarios[moicKey]?.[scenarioKey] || false}
+                                  onCheckedChange={() => toggleScenario(moicKey, scenarioKey)}
+                                />
+                                <Label htmlFor={`${moicKey}-${scenarioKey}`} className="text-sm">
+                                  Single Parameter: {getParameterDisplayName(option.parameterType)}
+                                  {option.achievable ? (
+                                    <Badge className="ml-2 bg-green-100 text-green-700 text-xs">Achievable</Badge>
+                                  ) : (
+                                    <Badge className="ml-2 bg-orange-100 text-orange-700 text-xs">Challenging</Badge>
+                                  )}
+                                </Label>
+                              </div>
+                            );
+                          })}
+
+                          {/* Mixed Parameter Options */}
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`${moicKey}-mixed`}
+                              checked={selectedScenarios[moicKey]?.['mixed'] || false}
+                              onCheckedChange={() => toggleScenario(moicKey, 'mixed')}
+                            />
+                            <Label htmlFor={`${moicKey}-mixed`} className="text-sm">
+                              Mixed Parameter Optimization ({scenario.mixedParameterOptions?.length || 1} strategies)
+                              <Badge className="ml-2 bg-blue-100 text-blue-700 text-xs">Recommended</Badge>
+                            </Label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Export Summary */}
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h4 className="font-medium text-blue-900 mb-2">Export Summary</h4>
+              <div className="text-sm text-blue-800 space-y-1">
+                <div>Selected MOIC Targets: {Object.values(selectedMOICs).filter(Boolean).length}</div>
+                <div>
+                  Total Scenarios: {Object.entries(selectedScenarios).reduce((total, [moicKey, scenarios]) => {
+                    if (selectedMOICs[moicKey]) {
+                      return total + Object.values(scenarios).filter(Boolean).length;
+                    }
+                    return total;
+                  }, 0)}
+                </div>
+                <div className="mt-2 text-xs">
+                  ✓ Summary sheet with baseline and target overview<br/>
+                  ✓ Detailed sheets for each selected MOIC target<br/>
+                  ✓ Complete simulation results for all scenarios<br/>
+                  ✓ Professional formatting with color-coded performance
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowSensitivityExportDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={exportSensitivityToExcel}
+                className="bg-green-600 hover:bg-green-700 text-white"
+                disabled={Object.values(selectedMOICs).filter(Boolean).length === 0}
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Export to Excel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+
     </div>
   );
 };

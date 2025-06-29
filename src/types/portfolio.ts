@@ -249,4 +249,179 @@ export interface StartupFieldPresets {
     seriesC: number;
     ipo: number;
   };
+  exitValuations: {
+    preSeed: [number, number];
+    seed: [number, number];
+    seriesA: [number, number];
+    seriesB: [number, number];
+    seriesC: [number, number];
+    ipo: [number, number];
+  };
+  yearsToNext: {
+    toSeed: [number, number];
+    toSeriesA: [number, number];
+    toSeriesB: [number, number];
+    toSeriesC: [number, number];
+    toIPO: [number, number];
+  };
+}
+
+// New Forecast interfaces
+export type MacroeconomicCycle = 'expansion' | 'peak' | 'contraction' | 'trough';
+export type MarketSentiment = 'bullish' | 'neutral' | 'bearish';
+export type ForecastHorizon = 3 | 5 | 7 | 10 | 15;
+
+export interface MacroeconomicFactors {
+  cycle: MacroeconomicCycle;
+  sentiment: MarketSentiment;
+  interestRates: number; // %
+  inflationRate: number; // %
+  gdpGrowthRate: number; // %
+  publicMarketMultiples: number; // P/E ratio impact factor
+  liquidityEnvironment: 'abundant' | 'moderate' | 'constrained';
+}
+
+export interface SectorTrends {
+  field: StartupField;
+  growthOutlook: 'accelerating' | 'stable' | 'decelerating';
+  disruptionRisk: 'low' | 'medium' | 'high';
+  regulatoryRisk: 'low' | 'medium' | 'high';
+  competitionIntensity: 'low' | 'medium' | 'high';
+  fundingAvailability: 'abundant' | 'moderate' | 'limited';
+  expectedCAGR: number; // % compound annual growth rate
+}
+
+export interface ForecastScenario {
+  id: string;
+  name: string;
+  description: string;
+  probability: number; // %
+  macroeconomicFactors: MacroeconomicFactors;
+  sectorTrends: SectorTrends[];
+  timeHorizon: ForecastHorizon;
+  confidenceLevel: number; // %
+}
+
+export interface ForecastParameters {
+  baselinePortfolio: PortfolioInvestment[];
+  scenarios: ForecastScenario[];
+  timeHorizon: ForecastHorizon;
+  includeNewInvestments: boolean;
+  newInvestmentRate: number; // investments per year
+  capitalRecycling: boolean;
+  realTimeCalibration: boolean;
+  riskTolerance: 'conservative' | 'moderate' | 'aggressive';
+}
+
+export interface YearlyForecast {
+  year: number;
+  portfolioValue: number;
+  newInvestments: number;
+  exitValue: number;
+  managementFees: number;
+  netCashFlow: number;
+  irr: number;
+  moic: number;
+  activeInvestments: number;
+  scenarioProbability: number;
+}
+
+export interface ForecastResults {
+  scenarioId: string;
+  scenarioName: string;
+  timeHorizon: ForecastHorizon;
+  yearlyForecasts: YearlyForecast[];
+  finalMOIC: number;
+  finalIRR: number;
+  totalDistributed: number;
+  totalPaidIn: number;
+  peakPortfolioValue: number;
+  exitingCompanies: number;
+  successfulExits: number;
+  lossEvents: number;
+  averageHoldingPeriod: number;
+  sectorPerformance: {
+    field: StartupField;
+    moic: number;
+    irr: number;
+    exitCount: number;
+  }[];
+  riskMetrics: {
+    volatility: number;
+    maxDrawdown: number;
+    sharpeRatio: number;
+    probabilityOfLoss: number;
+    valueAtRisk: number; // 5% VaR
+  };
+}
+
+export interface ForecastComparison {
+  baselineResults: PortfolioResults;
+  forecastResults: ForecastResults[];
+  scenarios: ForecastScenario[];
+  aggregatedMetrics: {
+    expectedMOIC: number;
+    expectedIRR: number;
+    probabilityWeightedValue: number;
+    scenarioRange: {
+      optimistic: ForecastResults;
+      realistic: ForecastResults;
+      pessimistic: ForecastResults;
+    };
+  };
+  sensitivityFactors: {
+    factor: string;
+    impact: number; // % impact on final MOIC
+    riskLevel: 'low' | 'medium' | 'high';
+  }[];
+}
+
+export interface ForecastVisualizationData {
+  waterfallChart: {
+    category: string;
+    value: number;
+    cumulative: number;
+    type: 'positive' | 'negative' | 'total';
+  }[];
+  heatMap: {
+    scenario: string;
+    sector: StartupField;
+    year: number;
+    performance: number;
+    confidence: number;
+  }[];
+  tornadoChart: {
+    factor: string;
+    lowImpact: number;
+    highImpact: number;
+    baselineValue: number;
+  }[];
+  monteCarlo: {
+    simulation: number;
+    finalMOIC: number;
+    probability: number;
+  }[];
+}
+
+export interface MLCalibrationData {
+  historicalReturns: number[];
+  marketIndicators: number[];
+  sectorGrowthRates: number[];
+  publicComparablesData: number[];
+  lastCalibrationDate: string;
+  modelAccuracy: number; // %
+  calibrationStatus: 'current' | 'stale' | 'updating';
+}
+
+export interface ForecastSettings {
+  autoRefresh: boolean;
+  refreshInterval: number; // hours
+  alertThresholds: {
+    moicDeviation: number; // %
+    irrDeviation: number; // %
+    riskLevelChange: 'any' | 'increase' | 'decrease';
+  };
+  reportingFrequency: 'weekly' | 'monthly' | 'quarterly';
+  includeConfidenceIntervals: boolean;
+  showDetailedRiskMetrics: boolean;
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNotifications } from '@/components/NotificationSystem'
 import type { PortfolioInvestment, CustomParameterSet } from '@/types/portfolio'
@@ -78,6 +78,17 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Generate a session ID for debugging (stable across re-renders)
+  const sessionId = useMemo(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`, []);
+
+  // Use ref to avoid stale closures in CRUD operations
+  const customParameterSetsRef = useRef<CustomParameterSet[]>([]);
+  
+  // Update ref whenever state changes
+  useEffect(() => {
+    customParameterSetsRef.current = customParameterSets;
+  }, [customParameterSets]);
+
   // Load data from localStorage on mount
   const loadLocalData = useCallback(() => {
     const localInvestments = getFromStorage<PortfolioInvestment>(STORAGE_KEYS.INVESTMENTS);
@@ -85,12 +96,25 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
     
     setInvestments(localInvestments);
     setCustomParameterSets(localCustomSets);
-  }, []);
+  }, []); // No dependencies needed for storage functions
 
   // Initialize with localStorage data
   useEffect(() => {
-    loadLocalData();
-  }, [loadLocalData]);
+    if (!user) {
+      // Only load from localStorage when not authenticated
+      console.log(`🏁 [${sessionId}] Initializing with localStorage data (no user)`);
+      loadLocalData();
+    }
+  }, [user, sessionId, loadLocalData]); // Only depend on user state
+
+  // Debug: Track customParameterSets state changes
+  useEffect(() => {
+    console.log('🔍 HOOK STATE CHANGE: customParameterSets updated', {
+      count: customParameterSets.length,
+      sets: customParameterSets.map(set => ({ id: set.id, name: set.name })),
+      timestamp: new Date().toISOString()
+    });
+  }, [customParameterSets]);
 
   // Load data from database when user signs in
   useEffect(() => {
@@ -98,6 +122,7 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
       // Auto-load custom sets from database when user is authenticated
       const loadCustomSetsFromDb = async () => {
         try {
+          console.log(`🔄 [${sessionId}] Loading custom sets from database for user:`, user.id);
           const { data, error } = await supabase
             .from('custom_parameter_sets')
             .select('*')
@@ -106,23 +131,55 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
 
           if (error) throw error;
 
+          console.log(`📊 [${sessionId}] Database returned custom sets:`, data?.length || 0);
           const loadedCustomSets = (data || []).map(dbRowToCustomSet);
+          console.log(`🔄 [${sessionId}] Setting customParameterSets state with:`, loadedCustomSets.length, 'sets');
           setCustomParameterSets(loadedCustomSets);
         } catch (error) {
-          console.error('Failed to load custom sets from database:', error);
+          console.error(`❌ [${sessionId}] Failed to load custom sets from database:`, error);
+          // Don't clear the state on error, keep what we have
         }
       };
 
+      console.log(`👤 [${sessionId}] User authenticated, loading from database`);
       loadCustomSetsFromDb();
     } else {
       // When user signs out, revert to localStorage data
-      loadLocalData();
+      console.log(`👤 [${sessionId}] User signed out, reverting to localStorage data`);
+      const localCustomSets = getFromStorage<CustomParameterSet>(STORAGE_KEYS.CUSTOM_SETS);
+      setCustomParameterSets(localCustomSets);
     }
-  }, [user, loadLocalData]);
+  }, [user, sessionId]); // Only depend on user and sessionId
 
   const clearError = useCallback(() => {
     setError(null);
   }, []);
+
+  // Function to reload custom sets from database
+  const reloadCustomSetsFromDb = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      console.log('🔄 Reloading custom sets from database for user:', user.id);
+      const { data, error } = await supabase
+        .from('custom_parameter_sets')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      console.log('📊 Database returned custom sets:', data?.length || 0);
+      const loadedCustomSets = (data || []).map(dbRowToCustomSet);
+      console.log('🔄 Setting customParameterSets state with:', loadedCustomSets.length, 'sets');
+      setCustomParameterSets(loadedCustomSets);
+      return loadedCustomSets;
+    } catch (error) {
+      console.error('❌ Failed to reload custom sets from database:', error);
+      // Don't clear the state on error, keep what we have
+      throw error;
+    }
+  }, [user]);
 
   // Investment operations (localStorage only)
   const addInvestment = useCallback(async (investment: PortfolioInvestment) => {
@@ -265,7 +322,10 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
     try {
       console.log('Hook: addCustomParameterSet called with:', customSet);
       console.log('Hook: user is:', user ? 'authenticated' : 'not authenticated');
-      console.log('Hook: current customParameterSets length:', customParameterSets.length);
+      
+      const currentSets = customParameterSetsRef.current;
+      console.log('Hook: current customParameterSets length:', currentSets.length);
+      
       if (user) {
         // Save to database
         console.log('Hook: Saving to database');
@@ -280,7 +340,10 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Hook: Database error:', error);
+          throw error;
+        }
         console.log('Hook: Database insert successful, data:', data);
 
         const newCustomSet = dbRowToCustomSet(data);
@@ -293,11 +356,11 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
         console.log('Hook: Saving to localStorage');
         const newCustomSet = { ...customSet, id: customSet.id || generateId() };
         console.log('Hook: newCustomSet for localStorage:', newCustomSet);
-        const updatedCustomSets = [...customParameterSets, newCustomSet];
+        const updatedCustomSets = [...currentSets, newCustomSet];
         
         setCustomParameterSets(updatedCustomSets);
         saveToStorage(STORAGE_KEYS.CUSTOM_SETS, updatedCustomSets);
-        console.log('Hook: localStorage updated, new length:', updatedCustomSets.length);
+        console.log('Hook: localStorage updated');
         showSuccess('Custom Set Created', `"${customSet.name}" has been saved locally`);
       }
     } catch (error: any) {
@@ -306,21 +369,26 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
       showError('Creation Failed', errorMessage);
       throw new Error(errorMessage);
     }
-  }, [user, customParameterSets, showSuccess, showError]);
+  }, [user, showSuccess, showError]); // Remove customParameterSets dependency
 
   const updateCustomParameterSet = useCallback(async (id: string, updates: Partial<CustomParameterSet>) => {
     try {
-      console.log('Hook: updateCustomParameterSet called with id:', id, 'updates:', updates);
-      console.log('Hook: user is:', user ? 'authenticated' : 'not authenticated');
+      console.log('🔄 Hook: updateCustomParameterSet called with id:', id, 'updates:', updates);
+      console.log('👤 Hook: user is:', user ? 'authenticated' : 'not authenticated');
+      
+      const currentSets = customParameterSetsRef.current;
+      const currentSet = currentSets.find(set => set.id === id);
+      if (!currentSet) {
+        console.error('❌ Hook: Custom set not found with id:', id);
+        throw new Error('Custom set not found');
+      }
+      console.log('📝 Hook: Found current set:', currentSet.name);
+
       if (user) {
         // Update in database
-        console.log('Hook: Updating in database');
-        const currentSet = customParameterSets.find(set => set.id === id);
-        if (!currentSet) throw new Error('Custom set not found');
-        console.log('Hook: Found current set:', currentSet);
-
+        console.log('📊 Hook: Updating in database');
         const updatedSet = { ...currentSet, ...updates };
-        console.log('Hook: Updated set:', updatedSet);
+        console.log('🔄 Hook: Updated set will be:', updatedSet);
         const dbRow = customSetToDbRow(updatedSet);
 
         const { data, error } = await supabase
@@ -331,65 +399,102 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
           .select()
           .single();
 
-        if (error) throw error;
-        console.log('Hook: Database update successful, data:', data);
+        if (error) {
+          console.error('❌ Hook: Database update error:', error);
+          throw error;
+        }
+        console.log('✅ Hook: Database update successful, data:', data);
 
         const updatedCustomSet = dbRowToCustomSet(data);
-        console.log('Hook: Converted back to CustomParameterSet:', updatedCustomSet);
-        setCustomParameterSets(prev => prev.map(set => set.id === id ? updatedCustomSet : set));
-        console.log('Hook: State updated');
+        console.log('🔄 Hook: Converted back to CustomParameterSet:', updatedCustomSet);
+        
+        // Update local state immediately with the returned data
+        setCustomParameterSets(prev => {
+          const newSets = prev.map(set => set.id === id ? updatedCustomSet : set);
+          console.log('📊 Hook: Updated local state, set count unchanged:', newSets.length);
+          return newSets;
+        });
+        
+        console.log('🎉 Hook: Local state updated successfully');
         showSuccess('Custom Set Updated', `"${updatedCustomSet.name}" has been updated`);
       } else {
         // Update in localStorage
-        console.log('Hook: Updating in localStorage');
-        const updatedCustomSets = customParameterSets.map(set => 
+        console.log('💾 Hook: Updating in localStorage');
+        const updatedCustomSets = currentSets.map(set => 
           set.id === id ? { ...set, ...updates } : set
         );
         
         setCustomParameterSets(updatedCustomSets);
         saveToStorage(STORAGE_KEYS.CUSTOM_SETS, updatedCustomSets);
-        console.log('Hook: localStorage updated');
+        console.log('✅ Hook: localStorage updated');
         showSuccess('Custom Set Updated', 'Changes saved locally');
       }
     } catch (error: any) {
-      console.error('Hook: Error in updateCustomParameterSet:', error);
+      console.error('❌ Hook: Error in updateCustomParameterSet:', error);
       const errorMessage = `Failed to update custom set: ${error.message}`;
       showError('Update Failed', errorMessage);
+      
+      // Don't modify state on error, keep current state intact
       throw new Error(errorMessage);
     }
-  }, [user, customParameterSets, showSuccess, showError]);
+  }, [user, showSuccess, showError]);
 
   const deleteCustomParameterSet = useCallback(async (id: string) => {
     try {
-      const setToDelete = customParameterSets.find(set => set.id === id);
-      const setName = setToDelete?.name || 'Unknown';
+      console.log('🗑️ Hook: deleteCustomParameterSet called with id:', id);
+      console.log('👤 Hook: user is:', user ? 'authenticated' : 'not authenticated');
+      
+      const currentSets = customParameterSetsRef.current;
+      const currentSet = currentSets.find(set => set.id === id);
+      if (!currentSet) {
+        console.error('❌ Hook: Custom set not found with id:', id);
+        throw new Error('Custom set not found');
+      }
+      console.log('📝 Hook: Found set to delete:', currentSet.name);
 
       if (user) {
         // Delete from database
+        console.log('🗑️ Hook: Deleting from database');
         const { error } = await supabase
           .from('custom_parameter_sets')
           .delete()
           .eq('id', id)
           .eq('user_id', user.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('❌ Hook: Database delete error:', error);
+          throw error;
+        }
+        console.log('✅ Hook: Database delete successful');
 
-        setCustomParameterSets(prev => prev.filter(set => set.id !== id));
-        showSuccess('Custom Set Deleted', `"${setName}" has been removed from the cloud`);
+        // Update local state immediately
+        setCustomParameterSets(prev => {
+          const newSets = prev.filter(set => set.id !== id);
+          console.log('📊 Hook: Updated local state after delete, new count:', newSets.length);
+          return newSets;
+        });
+        
+        console.log('🎉 Hook: Local state updated successfully after delete');
+        showSuccess('Custom Set Deleted', `"${currentSet.name}" has been deleted`);
       } else {
         // Delete from localStorage
-        const updatedCustomSets = customParameterSets.filter(set => set.id !== id);
+        console.log('🗑️ Hook: Deleting from localStorage');
+        const updatedCustomSets = currentSets.filter(set => set.id !== id);
         
         setCustomParameterSets(updatedCustomSets);
         saveToStorage(STORAGE_KEYS.CUSTOM_SETS, updatedCustomSets);
-        showSuccess('Custom Set Deleted', `"${setName}" has been removed locally`);
+        console.log('✅ Hook: localStorage updated after delete');
+        showSuccess('Custom Set Deleted', 'Removed from local storage');
       }
     } catch (error: any) {
+      console.error('❌ Hook: Error in deleteCustomParameterSet:', error);
       const errorMessage = `Failed to delete custom set: ${error.message}`;
-      showError('Deletion Failed', errorMessage);
+      showError('Delete Failed', errorMessage);
+      
+      // Don't modify state on error, keep current state intact
       throw new Error(errorMessage);
     }
-  }, [user, customParameterSets, showSuccess, showError]);
+  }, [user, showSuccess, showError]);
 
   // Database operations (only available when authenticated)
   const saveToDatabase = useCallback(async () => {
@@ -634,6 +739,7 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
         description: row.description,
         color: row.color,
         icon: row.icon,
+        createdAt: row.created_at,
         stageProgression: {
           toSeed: row.stage_progression_to_seed,
           toSeriesA: row.stage_progression_to_series_a,
@@ -860,16 +966,16 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
           exit_valuations_series_c_max: set.exitValuations.seriesC[1],
           exit_valuations_ipo_min: set.exitValuations.ipo[0],
           exit_valuations_ipo_max: set.exitValuations.ipo[1],
-          years_to_next_to_seed_min: set.yearsToNext.toSeed?.[0],
-          years_to_next_to_seed_max: set.yearsToNext.toSeed?.[1],
-          years_to_next_to_series_a_min: set.yearsToNext.toSeriesA?.[0],
-          years_to_next_to_series_a_max: set.yearsToNext.toSeriesA?.[1],
-          years_to_next_to_series_b_min: set.yearsToNext.toSeriesB?.[0],
-          years_to_next_to_series_b_max: set.yearsToNext.toSeriesB?.[1],
-          years_to_next_to_series_c_min: set.yearsToNext.toSeriesC?.[0],
-          years_to_next_to_series_c_max: set.yearsToNext.toSeriesC?.[1],
-          years_to_next_to_ipo_min: set.yearsToNext.toIPO?.[0],
-          years_to_next_to_ipo_max: set.yearsToNext.toIPO?.[1],
+          years_to_next_to_seed_min: set.yearsToNext?.toSeed?.[0],
+          years_to_next_to_seed_max: set.yearsToNext?.toSeed?.[1],
+          years_to_next_to_series_a_min: set.yearsToNext?.toSeriesA?.[0],
+          years_to_next_to_series_a_max: set.yearsToNext?.toSeriesA?.[1],
+          years_to_next_to_series_b_min: set.yearsToNext?.toSeriesB?.[0],
+          years_to_next_to_series_b_max: set.yearsToNext?.toSeriesB?.[1],
+          years_to_next_to_series_c_min: set.yearsToNext?.toSeriesC?.[0],
+          years_to_next_to_series_c_max: set.yearsToNext?.toSeriesC?.[1],
+          years_to_next_to_ipo_min: set.yearsToNext?.toIPO?.[0],
+          years_to_next_to_ipo_max: set.yearsToNext?.toIPO?.[1],
         }));
 
         const { error: customSetError } = await supabase
@@ -988,6 +1094,7 @@ export const usePortfolioData = (): UsePortfolioDataReturn => {
         description: row.description,
         color: row.color,
         icon: row.icon,
+        createdAt: row.created_at,
         stageProgression: {
           toSeed: row.stage_progression_to_seed,
           toSeriesA: row.stage_progression_to_series_a,
